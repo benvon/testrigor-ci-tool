@@ -3,55 +3,54 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'           # Matches standard semver (v1.2.3)
-      - 'v*.*.*-*'         # Matches pre-releases (v1.2.3-alpha.1)
-      - 'v*.*.*-*.*'       # Matches pre-releases with dots (v1.2.3-alpha.1.2)
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
-  release:
-    name: Create Release
+  build-and-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache: true
+    
+    - name: Install dependencies
+      run: go mod download
 
-      - name: Extract Go version
-        id: go-version
-        run: echo "version=$(grep '^go ' go.mod | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+    - name: Verify dependencies
+      run: go mod verify
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ steps.go-version.outputs.version }}
-          cache: true
+    - name: Install Syft
+      uses: anchore/sbom-action/download-syft@v0
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
-        with:
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Virtual Tags
-        if: ${{ !contains(github.ref, '-') }}  # Only update virtual tags for stable releases
-        run: |
-          # Extract version components
-          VERSION=${GITHUB_REF#refs/tags/v}
-          MAJOR=$(echo $VERSION | cut -d. -f1)
-          
-          # Delete existing virtual tag if it exists
-          git tag -d "v$MAJOR" 2>/dev/null || true
-          git push origin ":refs/tags/v$MAJOR" 2>/dev/null || true
-          
-          # Create new virtual tag
-          git tag "v$MAJOR" "$GITHUB_SHA"
-          git push origin "v$MAJOR"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+    - name: Run GoReleaser
+      uses: goreleaser/goreleaser-action@v6
+      with:
+        distribution: goreleaser
+        version: latest
+        args: release --clean
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload artifacts to GitHub Packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: binaries
+        path: dist/
+        

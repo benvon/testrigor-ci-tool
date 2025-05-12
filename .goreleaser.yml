@@ -1,31 +1,44 @@
+project_name: testrigor-ci
+
+version: 2
+
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: testrigor-ci
-    main: ./main.go
-    binary: testrigor-ci
-    env:
+  - env:
       - CGO_ENABLED=0
     goos:
       - linux
+      - windows
       - darwin
     goarch:
       - amd64
       - arm64
+      - '386'
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    main: .
 
 archives:
-  - format: tar.gz
+  - formats: [ 'tar.gz' ]
     name_template: >-
       {{ .ProjectName }}_
-      {{- title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "386" }}i386
-      {{- else }}{{ .Arch }}{{ end }}
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [ 'zip' ]
+
+checksum:
+  name_template: 'checksums.txt'
 
 changelog:
   sort: asc
@@ -33,6 +46,33 @@ changelog:
     exclude:
       - '^docs:'
       - '^test:'
-      - '^ci:'
       - Merge pull request
-      - Merge branch 
+      - Merge branch
+
+dockers:
+  - image_templates:
+    - "ghcr.io/{{.Env.GITHUB_REPOSITORY_OWNER}}/{{.ProjectName}}:{{ .Version }}"
+    - "ghcr.io/{{.Env.GITHUB_REPOSITORY_OWNER}}/{{.ProjectName}}:latest"
+    dockerfile: Dockerfile.goreleaser
+    build_flag_templates:
+    - --label=org.opencontainers.image.created={{.Date}}
+    - --label=org.opencontainers.image.title={{.ProjectName}}
+    - --label=org.opencontainers.image.revision={{.FullCommit}}
+    - --label=org.opencontainers.image.version={{.Version}}
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+sboms:
+  - id: spdx-format
+    artifacts: archive
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_sbom.spdx.json"
+    cmd: syft
+    args: ["$artifact", "--output", "spdx-json=$document"]
+  - id: cyclonedx-format
+    artifacts: archive
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_sbom.cyclonedx.json"
+    cmd: syft
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
