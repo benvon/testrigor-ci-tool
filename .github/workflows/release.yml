@@ -3,7 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'  # Matches semantic version tags
+      - 'v*.*.*'           # Matches standard semver (v1.2.3)
+      - 'v*.*.*-*'         # Matches pre-releases (v1.2.3-alpha.1)
+      - 'v*.*.*-*.*'       # Matches pre-releases with dots (v1.2.3-alpha.1.2)
+      - 'v*.*.*+*'         # Matches build metadata (v1.2.3+build.1)
+      - 'v*.*.*-*+*'       # Matches pre-releases with build metadata (v1.2.3-alpha.1+build.1)
 
 jobs:
   release:
@@ -38,6 +42,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Virtual Tags
+        if: ${{ !contains(github.ref, '-') }}  # Only update virtual tags for stable releases
         run: |
           # Extract version components
           VERSION=${GITHUB_REF#refs/tags/v}
