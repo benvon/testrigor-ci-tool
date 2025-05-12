@@ -6,8 +6,6 @@ on:
       - 'v*.*.*'           # Matches standard semver (v1.2.3)
       - 'v*.*.*-*'         # Matches pre-releases (v1.2.3-alpha.1)
       - 'v*.*.*-*.*'       # Matches pre-releases with dots (v1.2.3-alpha.1.2)
-      - 'v*.*.*+*'         # Matches build metadata (v1.2.3+build.1)
-      - 'v*.*.*-*+*'       # Matches pre-releases with build metadata (v1.2.3-alpha.1+build.1)
 
 jobs:
   release:
