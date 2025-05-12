@@ -16,13 +16,20 @@ import (
 
 // TestRigorClient handles interactions with the TestRigor API
 type TestRigorClient struct {
-	cfg       *config.Config
-	debugMode bool
+	cfg        *config.Config
+	debugMode  bool
+	httpClient HTTPClient
 }
 
 // NewTestRigorClient creates a new TestRigor API client
-func NewTestRigorClient(cfg *config.Config) *TestRigorClient {
-	return &TestRigorClient{cfg: cfg}
+func NewTestRigorClient(cfg *config.Config, client ...HTTPClient) *TestRigorClient {
+	var httpClient HTTPClient
+	if len(client) > 0 && client[0] != nil {
+		httpClient = client[0]
+	} else {
+		httpClient = NewDefaultHTTPClient()
+	}
+	return &TestRigorClient{cfg: cfg, httpClient: httpClient}
 }
 
 // SetDebugMode enables or disables debug output
@@ -146,8 +153,7 @@ func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
 		}
 	}
 
-	client := NewDefaultHTTPClient()
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
@@ -516,6 +522,9 @@ func getString(m map[string]interface{}, key string) string {
 func getInt(m map[string]interface{}, key string) int {
 	if val, ok := m[key].(float64); ok {
 		return int(val)
+	}
+	if val, ok := m[key].(int); ok {
+		return val
 	}
 	return 0
 }
