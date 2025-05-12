@@ -1,0 +1,5 @@
+FROM scratch 
+
+COPY testrigor-ci /testrigor-ci
+
+ENTRYPOINT ["/testrigor-ci"]
