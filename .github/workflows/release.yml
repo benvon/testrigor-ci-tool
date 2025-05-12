@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Matches semantic version tags
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Go version
+        id: go-version
+        run: echo "version=$(grep '^go ' go.mod | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Virtual Tags
+        run: |
+          # Extract version components
+          VERSION=${GITHUB_REF#refs/tags/v}
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          
+          # Delete existing virtual tag if it exists
+          git tag -d "v$MAJOR" 2>/dev/null || true
+          git push origin ":refs/tags/v$MAJOR" 2>/dev/null || true
+          
+          # Create new virtual tag
+          git tag "v$MAJOR" "$GITHUB_SHA"
+          git push origin "v$MAJOR"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
