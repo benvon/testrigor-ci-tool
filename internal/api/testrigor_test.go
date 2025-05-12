@@ -201,3 +201,93 @@ func TestGetInt(t *testing.T) {
 	assert.Equal(t, 0, getInt(m, "nil"))
 	assert.Equal(t, 0, getInt(m, "nonexistent"))
 }
+
+func TestMakeRequestErrorHandling(t *testing.T) {
+	tests := []struct {
+		name           string
+		responseBody   string
+		responseStatus int
+		expectedError  string
+		shouldError    bool
+	}{
+		{
+			name:           "malformed JSON response",
+			responseBody:   `{"status": "error", "message": "Invalid request", "errors": [{"invalid json`,
+			responseStatus: 200,
+			expectedError:  "error parsing response",
+			shouldError:    true,
+		},
+		{
+			name:           "non-JSON response",
+			responseBody:   "Internal Server Error",
+			responseStatus: 500,
+			expectedError:  "unexpected status code: 500, raw body: \"Internal Server Error\"",
+			shouldError:    true,
+		},
+		{
+			name:           "empty response",
+			responseBody:   "",
+			responseStatus: 200,
+			expectedError:  "empty response body",
+			shouldError:    true,
+		},
+		{
+			name:           "unexpected status code",
+			responseBody:   `{"status": "error", "message": "Service Unavailable"}`,
+			responseStatus: 503,
+			expectedError:  "unexpected status code: 503, message: Service Unavailable, errors: ",
+			shouldError:    true,
+		},
+		{
+			name:           "unexpected response structure",
+			responseBody:   `{"unexpected": "structure"}`,
+			responseStatus: 200,
+			expectedError:  "",
+			shouldError:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock HTTP client
+			mockClient := new(MockHTTPClient)
+
+			// Prepare mock response
+			mockResponse := &http.Response{
+				StatusCode: tt.responseStatus,
+				Body:       &mockReadCloser{data: []byte(tt.responseBody)},
+			}
+
+			// Set up mock expectations
+			mockClient.On("Do", mock.Anything).Return(mockResponse, nil)
+
+			// Create test client with mock HTTP client
+			client := NewTestRigorClient(&config.Config{
+				TestRigor: config.TestRigorConfig{
+					AuthToken: "test-token",
+					AppID:     "test-app",
+					APIURL:    "https://api.testrigor.com/api/v1",
+				},
+			}, mockClient)
+
+			// Execute test
+			_, err := client.makeRequest(requestOptions{
+				method:      "GET",
+				url:         "https://api.testrigor.com/api/v1/test",
+				contentType: "application/json",
+			})
+
+			if tt.shouldError {
+				assert.Error(t, err)
+				if err != nil && tt.expectedError != "" {
+					assert.Contains(t, err.Error(), tt.expectedError)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+
+			// Verify that all expectations were met
+			mockClient.AssertExpectations(t)
+		})
+	}
+}

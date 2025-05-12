@@ -169,6 +169,11 @@ func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
 		return nil, fmt.Errorf("error reading response body: %v", err)
 	}
 
+	// Check for empty response
+	if len(bodyBytes) == 0 {
+		return nil, fmt.Errorf("empty response body")
+	}
+
 	if c.debugMode {
 		var prettyJSON bytes.Buffer
 		if err := json.Indent(&prettyJSON, bodyBytes, "", "  "); err != nil {
@@ -176,6 +181,44 @@ func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
 		} else {
 			fmt.Printf("Response body:\n%s\n", prettyJSON.String())
 		}
+	}
+
+	// Always try to parse as JSON for error details
+	var jsonCheck map[string]interface{}
+	jsonErr := json.Unmarshal(bodyBytes, &jsonCheck)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if jsonErr == nil {
+			// Try to extract error details
+			msg := ""
+			if m, ok := jsonCheck["message"].(string); ok {
+				msg = m
+			}
+			details := ""
+			if errs, ok := jsonCheck["errors"].([]interface{}); ok && len(errs) > 0 {
+				detailStrs := make([]string, 0, len(errs))
+				for _, e := range errs {
+					if s, ok := e.(string); ok {
+						detailStrs = append(detailStrs, s)
+					}
+				}
+				details = strings.Join(detailStrs, "; ")
+			}
+			return nil, fmt.Errorf("unexpected status code: %d, message: %s, errors: %s", resp.StatusCode, msg, details)
+		} else {
+			// Not JSON, include truncated raw body
+			maxLen := 200
+			bodyStr := string(bodyBytes)
+			if len(bodyStr) > maxLen {
+				bodyStr = bodyStr[:maxLen] + "..."
+			}
+			return nil, fmt.Errorf("unexpected status code: %d, raw body: %q", resp.StatusCode, bodyStr)
+		}
+	}
+
+	// For 2xx, still check if JSON is valid
+	if jsonErr != nil {
+		return nil, fmt.Errorf("error parsing response: %v", jsonErr)
 	}
 
 	return bodyBytes, nil
