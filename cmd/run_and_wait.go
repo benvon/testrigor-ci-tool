@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/benvon/testrigor-ci-tool/internal/api"
+	"github.com/benvon/testrigor-ci-tool/internal/api/types"
 	"github.com/benvon/testrigor-ci-tool/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +30,7 @@ If no branch name is provided, one will be automatically generated.`,
 			}
 
 			// Get flag values
-			debugMode := cmd.Flag("debug").Changed
+			debugMode, _ := cmd.Flags().GetBool("debug")
 			labels, _ := cmd.Flags().GetStringSlice("labels")
 			excludedLabels, _ := cmd.Flags().GetStringSlice("excluded-labels")
 			branchName, _ := cmd.Flags().GetString("branch")
@@ -41,13 +42,14 @@ If no branch name is provided, one will be automatically generated.`,
 			forceCancel := cmd.Flag("force-cancel").Changed
 			fetchReport := cmd.Flag("fetch-report").Changed
 			makeXrayReports := cmd.Flag("make-xray-reports").Changed
+			timeout, _ := cmd.Flags().GetInt("timeout")
 
 			// Create API client
 			client := api.NewTestRigorClient(cfg)
 			client.SetDebugMode(debugMode)
 
 			// Prepare test run options
-			opts := api.TestRunOptions{
+			opts := types.TestRunOptions{
 				ForceCancelPreviousTesting: forceCancel,
 				BranchName:                 branchName,
 				CommitHash:                 commitHash,
@@ -98,7 +100,7 @@ If no branch name is provided, one will be automatically generated.`,
 			fmt.Println()
 
 			// Wait for completion
-			err = client.WaitForTestCompletion(result.BranchName, labels, pollInterval, debugMode)
+			err = client.WaitForTestCompletion(result.BranchName, labels, pollInterval, debugMode, timeout)
 			if err != nil {
 				// If it's a test failure and we're not configured to error on test failure, just log it
 				if strings.Contains(err.Error(), "test run failed") && !cfg.TestRigor.ErrorOnTestFailure {
@@ -137,6 +139,7 @@ func init() {
 	runAndWaitCmd.Flags().String("test-case", "", "Test case UUID to run")
 	runAndWaitCmd.Flags().String("name", "", "Custom name for test run")
 	runAndWaitCmd.Flags().Int("poll-interval", 10, "Polling interval in seconds")
+	runAndWaitCmd.Flags().Int("timeout", 30, "Maximum time to wait for test completion in minutes (default: 30 minutes)")
 	runAndWaitCmd.Flags().Bool("debug", false, "Enable debug output")
 	runAndWaitCmd.Flags().Bool("force-cancel", false, "Force cancel previous testing")
 	runAndWaitCmd.Flags().Bool("fetch-report", false, "Download JUnit report after test completion")

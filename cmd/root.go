@@ -45,7 +45,6 @@ func init() {
 	rootCmd.Flags().Bool("version", false, "Print version information and exit")
 
 	// Add commands
-	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(cancelCmd)
 	rootCmd.AddCommand(runAndWaitCmd)
