@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/benvon/testrigor-ci-tool/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // MockHTTPClient is a mock implementation of the HTTPClient interface
@@ -22,7 +24,11 @@ type MockHTTPClient struct {
 
 func (m *MockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	args := m.Called(req)
-	return args.Get(0).(*http.Response), args.Error(1)
+	resp := args.Get(0)
+	if resp == nil {
+		return nil, args.Error(1)
+	}
+	return resp.(*http.Response), args.Error(1)
 }
 
 func TestNewTestRigorClient(t *testing.T) {
@@ -622,6 +628,343 @@ func TestWaitForTestCompletion(t *testing.T) {
 
 			// Verify that all expectations were met
 			mockClient.AssertExpectations(t)
+		})
+	}
+}
+
+func TestDefaultHTTPClient_Do(t *testing.T) {
+	// Use a mock HTTP client instead of real network requests
+	mockClient := new(MockHTTPClient)
+
+	// Simulate a successful request
+	req, err := http.NewRequest("GET", "https://example.com", nil)
+	require.NoError(t, err)
+	mockResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader("ok")),
+	}
+	mockClient.On("Do", mock.Anything).Return(mockResp, nil).Once()
+
+	resp, err := mockClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Simulate a failed request
+	req, err = http.NewRequest("GET", "https://nonexistent.example.com", nil)
+	require.NoError(t, err)
+	mockClient.On("Do", mock.Anything).Return(nil, fmt.Errorf("network error")).Once()
+
+	_, err = mockClient.Do(req)
+	require.Error(t, err)
+}
+
+func TestPrintDebug(t *testing.T) {
+	// Create a client with debug mode enabled
+	cfg := &config.Config{
+		TestRigor: config.TestRigorConfig{
+			AuthToken: "test-token",
+			AppID:     "test-app",
+		},
+	}
+	client := NewTestRigorClient(cfg)
+	client.SetDebugMode(true)
+
+	// Create a test request
+	req, err := http.NewRequest("GET", "https://example.com", nil)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Create a test response
+	resp := &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+	}
+	resp.Header.Set("Content-Type", "application/json")
+
+	// Test with request and response
+	client.printDebug(req, resp, nil, []byte(`{"test": "data"}`))
+
+	// Test with nil request
+	client.printDebug(nil, resp, nil, []byte(`{"test": "data"}`))
+
+	// Test with nil response
+	client.printDebug(req, nil, nil, nil)
+
+	// Test with request body
+	body := map[string]string{"test": "data"}
+	client.printDebug(req, resp, body, nil)
+}
+
+func TestFormatHeaders(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	headers.Set("Authorization", "Bearer token")
+	headers.Add("X-Custom", "value1")
+	headers.Add("X-Custom", "value2")
+
+	formatted := formatHeaders(headers)
+
+	// Check that all headers are present
+	assert.Contains(t, formatted, "Content-Type: application/json")
+	assert.Contains(t, formatted, "Authorization: Bearer token")
+	assert.Contains(t, formatted, "X-Custom: value1, value2")
+}
+
+func TestPrepareBranchInfo(t *testing.T) {
+	cfg := &config.Config{
+		TestRigor: config.TestRigorConfig{
+			AuthToken: "test-token",
+			AppID:     "test-app",
+		},
+	}
+	client := NewTestRigorClient(cfg)
+
+	tests := []struct {
+		name     string
+		opts     TestRunOptions
+		wantName string
+		wantInfo bool
+	}{
+		{
+			name: "with branch and commit",
+			opts: TestRunOptions{
+				BranchName: "test-branch",
+				CommitHash: "abc123",
+			},
+			wantName: "test-branch",
+			wantInfo: true,
+		},
+		{
+			name: "with branch only",
+			opts: TestRunOptions{
+				BranchName: "test-branch",
+			},
+			wantName: "test-branch",
+			wantInfo: true,
+		},
+		{
+			name: "with commit only",
+			opts: TestRunOptions{
+				CommitHash: "abc123",
+			},
+			wantName: "",
+			wantInfo: false,
+		},
+		{
+			name: "with labels only",
+			opts: TestRunOptions{
+				Labels: []string{"test"},
+			},
+			wantName: "non-empty",
+			wantInfo: true,
+		},
+		{
+			name:     "empty options",
+			opts:     TestRunOptions{},
+			wantName: "",
+			wantInfo: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name, info := client.prepareBranchInfo(tt.opts)
+			if tt.name == "with labels only" {
+				assert.NotEmpty(t, name)
+				assert.NotNil(t, info)
+				assert.Contains(t, info, "branch")
+			} else {
+				assert.Equal(t, tt.wantName, name)
+				if tt.wantInfo {
+					assert.NotNil(t, info)
+					assert.Contains(t, info, "branch")
+				} else {
+					assert.Nil(t, info)
+				}
+			}
+		})
+	}
+}
+
+func TestGetJUnitReport(t *testing.T) {
+	// Create a mock HTTP client
+	mockClient := &MockHTTPClient{}
+	cfg := &config.Config{
+		TestRigor: config.TestRigorConfig{
+			AuthToken: "test-token",
+			AppID:     "test-app",
+		},
+	}
+	client := NewTestRigorClient(cfg, mockClient)
+
+	tests := []struct {
+		name          string
+		taskID        string
+		mockResponse  *http.Response
+		mockError     error
+		expectError   bool
+		expectContent string
+	}{
+		{
+			name:   "successful report",
+			taskID: "test-task",
+			mockResponse: &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`<testsuites><testsuite name="test"/></testsuites>`)),
+			},
+			expectError:   false,
+			expectContent: `<testsuites><testsuite name="test"/></testsuites>`,
+		},
+		{
+			name:        "API error",
+			taskID:      "test-task",
+			mockError:   fmt.Errorf("API error"),
+			expectError: true,
+		},
+		{
+			name:   "not found",
+			taskID: "test-task",
+			mockResponse: &http.Response{
+				StatusCode: http.StatusNotFound,
+				Body:       io.NopCloser(strings.NewReader(`{"message": "Report not found"}`)),
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up mock expectations
+			if tt.mockResponse != nil {
+				mockClient.On("Do", mock.Anything).Return(tt.mockResponse, tt.mockError)
+			} else {
+				mockClient.On("Do", mock.Anything).Return(nil, tt.mockError)
+			}
+
+			// Call the function
+			err := client.GetJUnitReport(tt.taskID, true)
+
+			// Check results
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				// Register cleanup for the test file
+				t.Cleanup(func() {
+					os.Remove("test-report.xml")
+				})
+				// Check if file was created
+				content, err := os.ReadFile("test-report.xml")
+				if assert.NoError(t, err) {
+					assert.Equal(t, tt.expectContent, string(content))
+				}
+			}
+		})
+	}
+}
+
+func TestWaitForJUnitReport(t *testing.T) {
+	// Create a mock HTTP client
+	mockClient := &MockHTTPClient{}
+	cfg := &config.Config{
+		TestRigor: config.TestRigorConfig{
+			AuthToken: "test-token",
+			AppID:     "test-app",
+		},
+	}
+	client := NewTestRigorClient(cfg, mockClient)
+
+	tests := []struct {
+		name          string
+		taskID        string
+		mockResponses []struct {
+			response *http.Response
+			err      error
+		}
+		expectError bool
+	}{
+		{
+			name:   "immediate success",
+			taskID: "test-task",
+			mockResponses: []struct {
+				response *http.Response
+				err      error
+			}{
+				{
+					response: &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader(`<testsuites><testsuite name="test"/></testsuites>`)),
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:   "eventual success",
+			taskID: "test-task",
+			mockResponses: []struct {
+				response *http.Response
+				err      error
+			}{
+				{
+					response: &http.Response{
+						StatusCode: http.StatusNotFound,
+						Body:       io.NopCloser(strings.NewReader(`{"message": "Report still being generated"}`)),
+					},
+				},
+				{
+					response: &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader(`<testsuites><testsuite name=\"test\"/></testsuites>`)),
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:   "permanent error",
+			taskID: "test-task",
+			mockResponses: []struct {
+				response *http.Response
+				err      error
+			}{
+				{
+					err: fmt.Errorf("API error"),
+				},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up mock expectations
+			mockClient.ExpectedCalls = nil // clear previous calls
+			for _, mockResp := range tt.mockResponses {
+				if mockResp.response != nil {
+					mockClient.On("Do", mock.Anything).Return(mockResp.response, mockResp.err).Once()
+				} else {
+					mockClient.On("Do", mock.Anything).Return(nil, mockResp.err).Once()
+				}
+			}
+
+			// Call the function with a short poll interval
+			err := client.WaitForJUnitReport(tt.taskID, 1, true)
+
+			// Check results
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				// Check if file was created
+				_, err := os.ReadFile("test-report.xml")
+				assert.NoError(t, err)
+				// Clean up
+				os.Remove("test-report.xml")
+			}
 		})
 	}
 }
