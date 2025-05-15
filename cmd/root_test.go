@@ -30,7 +30,6 @@ It supports configuration through environment variables, command line flags, and
 	rootCmd.Flags().Bool("version", false, "Print version information and exit")
 
 	// Add subcommands
-	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(cancelCmd)
 	rootCmd.AddCommand(runAndWaitCmd)

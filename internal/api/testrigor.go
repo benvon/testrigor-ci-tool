@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/benvon/testrigor-ci-tool/internal/api/client"
+	"github.com/benvon/testrigor-ci-tool/internal/api/types"
+	"github.com/benvon/testrigor-ci-tool/internal/api/utils"
 	"github.com/benvon/testrigor-ci-tool/internal/config"
 )
 
@@ -18,19 +21,19 @@ import (
 type TestRigorClient struct {
 	cfg        *config.Config
 	debugMode  bool
-	httpClient HTTPClient
+	httpClient client.HTTPClient
 	startTime  time.Time
 }
 
 // NewTestRigorClient creates a new TestRigor API client
-func NewTestRigorClient(cfg *config.Config, client ...HTTPClient) *TestRigorClient {
-	var httpClient HTTPClient
-	if len(client) > 0 && client[0] != nil {
-		httpClient = client[0]
+func NewTestRigorClient(cfg *config.Config, httpClient ...client.HTTPClient) *TestRigorClient {
+	var c client.HTTPClient
+	if len(httpClient) > 0 && httpClient[0] != nil {
+		c = httpClient[0]
 	} else {
-		httpClient = NewDefaultHTTPClient()
+		c = client.NewDefaultHTTPClient()
 	}
-	return &TestRigorClient{cfg: cfg, httpClient: httpClient}
+	return &TestRigorClient{cfg: cfg, httpClient: c}
 }
 
 // SetDebugMode enables or disables debug output
@@ -38,75 +41,9 @@ func (c *TestRigorClient) SetDebugMode(debug bool) {
 	c.debugMode = debug
 }
 
-// TestRunOptions contains options for starting a test run
-type TestRunOptions struct {
-	ForceCancelPreviousTesting bool
-	TestCaseUUIDs              []string
-	BranchName                 string
-	CommitHash                 string
-	URL                        string
-	Labels                     []string
-	ExcludedLabels             []string
-	CustomName                 string
-	MakeXrayReports            bool
-}
-
-// TestStatus represents the status of a test run
-type TestStatus struct {
-	Status     string
-	DetailsURL string
-	TaskID     string
-	Errors     []TestError
-	Results    TestResults
-}
-
-// TestError represents an error that occurred during a test run
-type TestError struct {
-	Category    string
-	Error       string
-	Occurrences int
-	Severity    string
-	DetailsURL  string
-}
-
-// TestResults represents the overall results of a test run
-type TestResults struct {
-	Total      int
-	InQueue    int
-	InProgress int
-	Failed     int
-	Passed     int
-	Canceled   int
-	NotStarted int
-	Crash      int
-}
-
-// TestRunResult contains the result of starting a test run
-type TestRunResult struct {
-	TaskID     string
-	BranchName string
-}
-
 // HTTPClient interface for making HTTP requests
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
-}
-
-// DefaultHTTPClient is the default HTTP client implementation
-type DefaultHTTPClient struct {
-	client *http.Client
-}
-
-// NewDefaultHTTPClient creates a new default HTTP client
-func NewDefaultHTTPClient() *DefaultHTTPClient {
-	return &DefaultHTTPClient{
-		client: &http.Client{},
-	}
-}
-
-// Do implements the HTTPClient interface
-func (c *DefaultHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	return c.client.Do(req)
 }
 
 // requestOptions contains options for making HTTP requests
@@ -154,8 +91,8 @@ func (c *TestRigorClient) handleResponse(resp *http.Response, bodyBytes []byte) 
 	case 200:
 		return bodyBytes, nil
 	case 227, 228:
-		// Return both body and error to allow status info to be processed while indicating test is in progress
-		return bodyBytes, fmt.Errorf("test in progress")
+		// These are normal status codes indicating test is in progress
+		return bodyBytes, fmt.Errorf("status %d", resp.StatusCode)
 	case 230:
 		return bodyBytes, fmt.Errorf("test failed")
 	case 400, 401, 403, 404, 500, 502, 503, 504:
@@ -274,7 +211,7 @@ func generateFakeCommitHash(timestamp string) string {
 }
 
 // prepareBranchInfo prepares branch information for the test run
-func (c *TestRigorClient) prepareBranchInfo(opts TestRunOptions) (string, map[string]interface{}) {
+func (c *TestRigorClient) prepareBranchInfo(opts types.TestRunOptions) (string, map[string]interface{}) {
 	if opts.CommitHash != "" && opts.BranchName == "" {
 		return "", nil
 	}
@@ -296,14 +233,14 @@ func (c *TestRigorClient) prepareBranchInfo(opts TestRunOptions) (string, map[st
 	if opts.CommitHash != "" {
 		branchInfo["commit"] = opts.CommitHash
 	} else {
-		branchInfo["commit"] = generateFakeCommitHash(timestamp)
+		branchInfo["commit"] = utils.GenerateFakeCommitHash(timestamp)
 	}
 
 	return branchName, map[string]interface{}{"branch": branchInfo}
 }
 
 // prepareRequestBody prepares the request body for starting a test run
-func (c *TestRigorClient) prepareRequestBody(opts TestRunOptions) (map[string]interface{}, string) {
+func (c *TestRigorClient) prepareRequestBody(opts types.TestRunOptions) (map[string]interface{}, string) {
 	body := map[string]interface{}{
 		"forceCancelPreviousTesting": opts.ForceCancelPreviousTesting,
 		"skipXrayCloud":              !opts.MakeXrayReports,
@@ -342,18 +279,18 @@ func (c *TestRigorClient) prepareRequestBody(opts TestRunOptions) (map[string]in
 }
 
 // StartTestRun starts a new test run with the given options
-func (c *TestRigorClient) StartTestRun(opts TestRunOptions) (*TestRunResult, error) {
+func (c *TestRigorClient) StartTestRun(opts types.TestRunOptions) (*types.TestRunResult, error) {
 	body, branchName := c.prepareRequestBody(opts)
 
 	// Set the start time when the test run begins
 	c.startTime = time.Now()
 
-	bodyBytes, err := c.makeRequest(requestOptions{
-		method:      "POST",
-		url:         fmt.Sprintf("%s/apps/%s/retest", c.cfg.TestRigor.APIURL, c.cfg.TestRigor.AppID),
-		body:        body,
-		contentType: "application/json",
-		debugMode:   c.debugMode,
+	bodyBytes, err := client.MakeRequest(c.httpClient, c.cfg, client.RequestOptions{
+		Method:      "POST",
+		URL:         fmt.Sprintf("%s/apps/%s/retest", c.cfg.TestRigor.APIURL, c.cfg.TestRigor.AppID),
+		Body:        body,
+		ContentType: "application/json",
+		DebugMode:   c.debugMode,
 	})
 	if err != nil {
 		return nil, err
@@ -365,17 +302,17 @@ func (c *TestRigorClient) StartTestRun(opts TestRunOptions) (*TestRunResult, err
 	}
 
 	if taskID, ok := result["taskId"].(string); ok {
-		return &TestRunResult{
+		return &types.TestRunResult{
 			TaskID:     taskID,
 			BranchName: branchName,
 		}, nil
 	}
 
-	return nil, parseErrorResponse(bodyBytes)
+	return nil, utils.ParseErrorResponse(bodyBytes)
 }
 
 // GetTestStatus gets the current status of a test run
-func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*TestStatus, error) {
+func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*types.TestStatus, error) {
 	// Build URL with query parameters
 	url := fmt.Sprintf("%s/apps/%s/status", c.cfg.TestRigor.APIURL, c.cfg.TestRigor.AppID)
 
@@ -392,15 +329,15 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*Te
 	}
 
 	// Make the request
-	bodyBytes, err := c.makeRequest(requestOptions{
-		method:      "GET",
-		url:         url,
-		contentType: "application/json",
-		debugMode:   c.debugMode,
+	bodyBytes, err := client.MakeRequest(c.httpClient, c.cfg, client.RequestOptions{
+		Method:      "GET",
+		URL:         url,
+		ContentType: "application/json",
+		DebugMode:   c.debugMode,
 	})
 
 	// For API errors (400, 401, 403, 404, 500, etc.), return the error directly
-	if err != nil && !strings.Contains(err.Error(), "test in progress") && !strings.Contains(err.Error(), "test failed") {
+	if err != nil && !strings.Contains(err.Error(), "status 227") && !strings.Contains(err.Error(), "status 228") {
 		return nil, err
 	}
 
@@ -424,16 +361,16 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*Te
 	}
 
 	// Parse errors if present
-	var errors []TestError
+	var errors []types.TestError
 	if errList, ok := result["errors"].([]interface{}); ok {
 		for _, err := range errList {
 			if errMap, ok := err.(map[string]interface{}); ok {
-				testErr := TestError{
-					Category:    getString(errMap, "category"),
-					Error:       getString(errMap, "error"),
-					Occurrences: getInt(errMap, "occurrences"),
-					Severity:    getString(errMap, "severity"),
-					DetailsURL:  getString(errMap, "detailsUrl"),
+				testErr := types.TestError{
+					Category:    utils.GetString(errMap, "category"),
+					Error:       utils.GetString(errMap, "error"),
+					Occurrences: utils.GetInt(errMap, "occurrences"),
+					Severity:    utils.GetString(errMap, "severity"),
+					DetailsURL:  utils.GetString(errMap, "detailsUrl"),
 				}
 				errors = append(errors, testErr)
 			}
@@ -441,21 +378,21 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*Te
 	}
 
 	// Parse overall results if present
-	var results TestResults
+	var results types.TestResults
 	if resultsMap, ok := result["overallResults"].(map[string]interface{}); ok {
-		results = TestResults{
-			Total:      getInt(resultsMap, "Total"),
-			InQueue:    getInt(resultsMap, "In queue"),
-			InProgress: getInt(resultsMap, "In progress"),
-			Failed:     getInt(resultsMap, "Failed"),
-			Passed:     getInt(resultsMap, "Passed"),
-			Canceled:   getInt(resultsMap, "Canceled"),
-			NotStarted: getInt(resultsMap, "Not started"),
-			Crash:      getInt(resultsMap, "Crash"),
+		results = types.TestResults{
+			Total:      utils.GetInt(resultsMap, "Total"),
+			InQueue:    utils.GetInt(resultsMap, "In queue"),
+			InProgress: utils.GetInt(resultsMap, "In progress"),
+			Failed:     utils.GetInt(resultsMap, "Failed"),
+			Passed:     utils.GetInt(resultsMap, "Passed"),
+			Canceled:   utils.GetInt(resultsMap, "Canceled"),
+			NotStarted: utils.GetInt(resultsMap, "Not started"),
+			Crash:      utils.GetInt(resultsMap, "Crash"),
 		}
 	}
 
-	testStatus := &TestStatus{
+	testStatus := &types.TestStatus{
 		Status:     status,
 		DetailsURL: detailsURL,
 		TaskID:     taskID,
@@ -464,12 +401,7 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*Te
 	}
 
 	// If we got a "test in progress" error, return both the status and the error
-	if err != nil && strings.Contains(err.Error(), "test in progress") {
-		return testStatus, err
-	}
-
-	// If we got a "test failed" error, return both the status and the error
-	if err != nil && strings.Contains(err.Error(), "test failed") {
+	if err != nil && (strings.Contains(err.Error(), "status 227") || strings.Contains(err.Error(), "status 228")) {
 		return testStatus, err
 	}
 
@@ -477,7 +409,7 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*Te
 }
 
 // printTestStatus prints the current test status and results
-func (c *TestRigorClient) printTestStatus(status *TestStatus, reason string) {
+func (c *TestRigorClient) printTestStatus(status *types.TestStatus, reason string) {
 	fmt.Printf("\n[%s] Current status: %s\n", reason, status.Status)
 	fmt.Printf("  Passed: %d, Failed: %d, In Progress: %d, In Queue: %d\n",
 		status.Results.Passed,
@@ -488,7 +420,7 @@ func (c *TestRigorClient) printTestStatus(status *TestStatus, reason string) {
 }
 
 // printFinalResults prints the final test results and errors
-func (c *TestRigorClient) printFinalResults(status *TestStatus) {
+func (c *TestRigorClient) printFinalResults(status *types.TestStatus) {
 	duration := time.Since(c.startTime)
 	fmt.Printf("\nTest run completed with status: %s\n", status.Status)
 	fmt.Printf("Total duration: %s\n", duration.Round(time.Second))
@@ -522,7 +454,7 @@ func (c *TestRigorClient) printFinalResults(status *TestStatus) {
 }
 
 // shouldPrintStatus determines if status should be printed based on changes and time
-func (c *TestRigorClient) shouldPrintStatus(status *TestStatus, lastStatus string, lastResults TestResults, lastUpdate time.Time) (bool, string) {
+func (c *TestRigorClient) shouldPrintStatus(status *types.TestStatus, lastStatus string, lastResults types.TestResults, lastUpdate time.Time) (bool, string) {
 	if status.Status != lastStatus {
 		return true, "status changed"
 	}
@@ -536,7 +468,7 @@ func (c *TestRigorClient) shouldPrintStatus(status *TestStatus, lastStatus strin
 }
 
 // handleTestStatus processes the test status and returns appropriate error
-func (c *TestRigorClient) handleTestStatus(status *TestStatus, err error) (bool, error) {
+func (c *TestRigorClient) handleTestStatus(status *types.TestStatus, err error) (bool, error) {
 	if err != nil {
 		switch err.Error() {
 		case "test failed":
@@ -551,7 +483,7 @@ func (c *TestRigorClient) handleTestStatus(status *TestStatus, err error) (bool,
 		}
 	}
 
-	if isComplete(status.Status) {
+	if utils.CheckTestCompletion(status, c.debugMode) {
 		c.printFinalResults(status)
 		return false, nil
 	}
@@ -559,30 +491,152 @@ func (c *TestRigorClient) handleTestStatus(status *TestStatus, err error) (bool,
 	return true, nil
 }
 
+// checkTimeout verifies if the maximum wait time has been exceeded
+func (c *TestRigorClient) checkTimeout(startTime time.Time, maxWaitTime time.Duration) error {
+	if time.Since(startTime) > maxWaitTime {
+		return fmt.Errorf("test run timed out after %v", maxWaitTime)
+	}
+	return nil
+}
+
+// handleStatusCheckError processes status check errors and returns whether to continue
+func (c *TestRigorClient) handleStatusCheckError(err error, consecutiveErrors *int, maxConsecutiveErrors int, debugMode bool) (bool, error) {
+	if strings.Contains(err.Error(), "status 227") || strings.Contains(err.Error(), "status 228") {
+		*consecutiveErrors++
+		if *consecutiveErrors >= maxConsecutiveErrors {
+			return false, fmt.Errorf("received %d consecutive errors while checking test status: %v", *consecutiveErrors, err)
+		}
+		if debugMode {
+			fmt.Printf("Error checking status (attempt %d/%d): %v\n", *consecutiveErrors, maxConsecutiveErrors, err)
+		}
+		return true, nil
+	}
+	if strings.Contains(err.Error(), "test failed") {
+		return false, fmt.Errorf("test run failed")
+	}
+	return false, err
+}
+
+// checkTestCompletion verifies if all tests have completed execution
+func (c *TestRigorClient) checkTestCompletion(status *types.TestStatus, debugMode bool) bool {
+	if status.Results.Total > 0 &&
+		status.Results.InQueue == 0 &&
+		status.Results.InProgress == 0 &&
+		status.Results.NotStarted == 0 {
+		if debugMode {
+			fmt.Printf("\nAll tests have finished execution. Final status: %s\n", status.Status)
+		}
+		c.printFinalResults(status)
+		return true
+	}
+	return false
+}
+
+// pollTestStatus handles a single polling iteration for test status
+func (c *TestRigorClient) pollTestStatus(branchName string, labels []string, debugMode bool) (*types.TestStatus, error) {
+	status, err := c.GetTestStatus(branchName, labels)
+	if err != nil {
+		return status, err
+	}
+	return status, nil
+}
+
+// updateStatusDisplay updates the status display if needed
+func (c *TestRigorClient) updateStatusDisplay(status *types.TestStatus, lastStatus *string, lastResults *types.TestResults, lastUpdate *time.Time) {
+	shouldPrint, reason := c.shouldPrintStatus(status, *lastStatus, *lastResults, *lastUpdate)
+	if shouldPrint {
+		c.printTestStatus(status, reason)
+		*lastStatus = status.Status
+		*lastResults = status.Results
+		*lastUpdate = time.Now()
+	}
+}
+
+// handlePollingError processes polling errors and returns whether to continue
+func (c *TestRigorClient) handlePollingError(err error, consecutiveErrors *int, maxConsecutiveErrors int, debugMode bool, pollInterval int) (bool, error) {
+	if err != nil {
+		// Check if it's a test in progress status code
+		if strings.Contains(err.Error(), "status 227") || strings.Contains(err.Error(), "status 228") {
+			time.Sleep(time.Duration(pollInterval) * time.Second)
+			return true, nil
+		}
+
+		shouldContinue, err := c.handleStatusCheckError(err, consecutiveErrors, maxConsecutiveErrors, debugMode)
+		if !shouldContinue {
+			return false, err
+		}
+		time.Sleep(time.Duration(pollInterval) * time.Second)
+		return true, nil
+	}
+	return true, nil
+}
+
+// CancelTestRun cancels a running test
+func (c *TestRigorClient) CancelTestRun(branchName string, labels []string) error {
+	// Build URL with query parameters
+	url := fmt.Sprintf("%s/apps/%s/cancel", c.cfg.TestRigor.APIURL, c.cfg.TestRigor.AppID)
+
+	// Add query parameters if provided
+	params := make([]string, 0)
+	if branchName != "" {
+		params = append(params, fmt.Sprintf("branchName=%s", branchName))
+	}
+	if len(labels) > 0 {
+		params = append(params, fmt.Sprintf("labels=%s", strings.Join(labels, ",")))
+	}
+	if len(params) > 0 {
+		url += "?" + strings.Join(params, "&")
+	}
+
+	// Make the request
+	_, err := client.MakeRequest(c.httpClient, c.cfg, client.RequestOptions{
+		Method:      "POST",
+		URL:         url,
+		ContentType: "application/json",
+		DebugMode:   c.debugMode,
+	})
+
+	return err
+}
+
 // WaitForTestCompletion waits for a test run to complete
-func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []string, pollInterval int, debugMode bool) error {
-	lastStatus := ""
-	lastResults := TestResults{}
-	lastUpdate := time.Now()
+func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []string, pollInterval int, debugMode bool, timeoutMinutes int) error {
+	maxRetries := (timeoutMinutes * 60) / pollInterval // Convert timeout to number of retries
+	retries := 0
+	consecutiveErrors := 0
+	maxConsecutiveErrors := 5
+	statusManager := client.NewStatusUpdateManager(debugMode, time.Duration(pollInterval)*time.Second)
+
+	// Ensure we cancel the test if we exit early
+	defer func() {
+		if err := c.CancelTestRun(branchName, labels); err != nil {
+			if debugMode {
+				fmt.Printf("Warning: Failed to cancel test run: %v\n", err)
+			}
+		}
+	}()
 
 	for {
+		if retries >= maxRetries {
+			return fmt.Errorf("timed out waiting for test completion after %d minutes", timeoutMinutes)
+		}
+		retries++
 		status, err := c.GetTestStatus(branchName, labels)
-		shouldContinue, err := c.handleTestStatus(status, err)
 		if err != nil {
-			return err
+			shouldContinue, err := utils.HandleStatusCheckError(err, &consecutiveErrors, maxConsecutiveErrors, debugMode)
+			if !shouldContinue {
+				return err
+			}
+			time.Sleep(time.Duration(pollInterval) * time.Second)
+			continue
 		}
-		if !shouldContinue {
-			return nil
-		}
+		consecutiveErrors = 0
 
-		// Always check for status updates, even when we get a "test in progress" error
 		if status != nil {
-			shouldPrint, reason := c.shouldPrintStatus(status, lastStatus, lastResults, lastUpdate)
-			if shouldPrint {
-				c.printTestStatus(status, reason)
-				lastStatus = status.Status
-				lastResults = status.Results
-				lastUpdate = time.Now()
+			statusManager.Update(status)
+			if utils.CheckTestCompletion(status, debugMode) {
+				statusManager.PrintFinalResults(status)
+				return nil
 			}
 		}
 
@@ -626,13 +680,17 @@ func (c *TestRigorClient) GetJUnitReport(taskID string, debugMode bool) error {
 	url := fmt.Sprintf("https://api2.testrigor.com/api/v1/apps/%s/runs/%s/junit_report", c.cfg.TestRigor.AppID, taskID)
 
 	// Make the request
-	bodyBytes, err := c.makeRequest(requestOptions{
-		method:      "GET",
-		url:         url,
-		contentType: "application/xml",
-		debugMode:   debugMode,
+	bodyBytes, err := client.MakeRequest(c.httpClient, c.cfg, client.RequestOptions{
+		Method:      "GET",
+		URL:         url,
+		ContentType: "application/xml",
+		DebugMode:   debugMode,
 	})
 	if err != nil {
+		// Check if it's a "report not ready" error
+		if strings.Contains(err.Error(), "Report still being generated") {
+			return fmt.Errorf("Report still being generated")
+		}
 		return err
 	}
 
@@ -658,7 +716,13 @@ func (c *TestRigorClient) GetJUnitReport(taskID string, debugMode bool) error {
 
 // WaitForJUnitReport waits for the JUnit report to be ready and downloads it
 func (c *TestRigorClient) WaitForJUnitReport(taskID string, pollInterval int, debugMode bool) error {
+	maxRetries := 60 // e.g., wait up to 60 * pollInterval seconds
+	retries := 0
 	for {
+		if retries >= maxRetries {
+			return fmt.Errorf("timed out waiting for JUnit report after %d attempts", maxRetries)
+		}
+		retries++
 		err := c.GetJUnitReport(taskID, debugMode)
 		if err == nil {
 			// Report successfully downloaded
@@ -666,9 +730,9 @@ func (c *TestRigorClient) WaitForJUnitReport(taskID string, pollInterval int, de
 		}
 
 		// Check if we should keep waiting
-		if strings.Contains(err.Error(), "still being generated") {
+		if strings.Contains(err.Error(), "still being generated") || strings.Contains(err.Error(), "API request failed with status 404") {
 			if debugMode {
-				fmt.Printf("Waiting for JUnit report to be generated...\n")
+				fmt.Printf("Waiting for JUnit report to be generated... (attempt %d/%d)\n", retries, maxRetries)
 			}
 			time.Sleep(time.Duration(pollInterval) * time.Second)
 			continue
