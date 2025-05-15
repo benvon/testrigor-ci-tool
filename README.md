@@ -83,4 +83,4 @@ TR_CI_ERROR_ON_TEST_FAILURE=true testrigor run-and-wait --labels Smoke
 
 ## License
 
-MIT
+Apache 2.0
