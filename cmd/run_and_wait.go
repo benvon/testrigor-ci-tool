@@ -139,7 +139,7 @@ func init() {
 	runAndWaitCmd.Flags().String("test-case", "", "Test case UUID to run")
 	runAndWaitCmd.Flags().String("name", "", "Custom name for test run")
 	runAndWaitCmd.Flags().Int("poll-interval", 10, "Polling interval in seconds")
-	runAndWaitCmd.Flags().Int("timeout", 1800, "Maximum time to wait for test completion in minutes (default: 30 minutes)")
+	runAndWaitCmd.Flags().Int("timeout", 30, "Maximum time to wait for test completion in minutes (default: 30 minutes)")
 	runAndWaitCmd.Flags().Bool("debug", false, "Enable debug output")
 	runAndWaitCmd.Flags().Bool("force-cancel", false, "Force cancel previous testing")
 	runAndWaitCmd.Flags().Bool("fetch-report", false, "Download JUnit report after test completion")

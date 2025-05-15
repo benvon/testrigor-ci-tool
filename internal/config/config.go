@@ -18,7 +18,6 @@ type TestRigorConfig struct {
 	AppID              string
 	APIURL             string
 	ErrorOnTestFailure bool
-	APIKey             string
 }
 
 // LoadConfig loads the configuration from file, environment variables, and command line flags
@@ -40,7 +39,6 @@ func LoadConfig() (*Config, error) {
 			AppID:              viper.GetString("testrigor.appid"),
 			APIURL:             viper.GetString("testrigor.apiurl"),
 			ErrorOnTestFailure: viper.GetBool("testrigor.errorontestfailure"),
-			APIKey:             viper.GetString("testrigor.apikey"),
 		},
 	}
 
