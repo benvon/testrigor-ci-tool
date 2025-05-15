@@ -1,105 +1,61 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"net/http"
+	"strings"
 
+	"github.com/benvon/testrigor-ci-tool/internal/api"
 	"github.com/benvon/testrigor-ci-tool/internal/config"
 	"github.com/spf13/cobra"
 )
 
 var (
-	forceCancel bool
-	branchName  string
-	branchCommit string
-	url         string
-	labels      []string
-	excludedLabels []string
-	customName  string
+	runBranchName string
+	runLabels     string
+	runTimeout    int
 
 	runCmd = &cobra.Command{
 		Use:   "run",
-		Short: "Start a test suite run",
-		Long:  `Start a new test suite run with the specified parameters.`,
+		Short: "Run a test suite",
+		Long:  `Run a test suite and wait for completion.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadConfig()
 			if err != nil {
 				return err
 			}
 
-			// Prepare request body
-			body := map[string]interface{}{
-				"forceCancelPreviousTesting": forceCancel,
+			client := api.NewTestRigorClient(cfg)
+			labels := []string{}
+			if runLabels != "" {
+				labels = strings.Split(runLabels, ",")
 			}
-
-			if branchName != "" {
-				body["branch"] = map[string]string{
-					"name":   branchName,
-					"commit": branchCommit,
-				}
+			opts := api.TestRunOptions{
+				BranchName: runBranchName,
+				Labels:     labels,
 			}
-
-			if url != "" {
-				body["url"] = url
-			}
-
-			if len(labels) > 0 {
-				body["labels"] = labels
-			}
-
-			if len(excludedLabels) > 0 {
-				body["excludedLabels"] = excludedLabels
-			}
-
-			if customName != "" {
-				body["customName"] = customName
-			}
-
-			jsonBody, err := json.Marshal(body)
+			result, err := client.StartTestRun(opts)
 			if err != nil {
-				return fmt.Errorf("error marshaling request body: %v", err)
+				return err
 			}
 
-			// Create request
-			req, err := http.NewRequest(
-				"POST",
-				fmt.Sprintf("%s/apps/%s/retest", cfg.TestRigor.APIURL, cfg.TestRigor.AppID),
-				bytes.NewBuffer(jsonBody),
-			)
+			fmt.Printf("Started test run with ID: %s\n", result.TaskID)
+			fmt.Println("Waiting for completion...")
+
+			pollInterval := runTimeout // Use runTimeout as poll interval for simplicity
+			err = client.WaitForTestCompletion(result.BranchName, labels, pollInterval, false)
 			if err != nil {
-				return fmt.Errorf("error creating request: %v", err)
+				return err
 			}
 
-			// Set headers
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("auth-token", cfg.TestRigor.AuthToken)
-
-			// Send request
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("error sending request: %v", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-			}
-
-			fmt.Println("Test suite run started successfully")
+			fmt.Println("Test run completed.")
 			return nil
 		},
 	}
 )
 
 func init() {
-	runCmd.Flags().BoolVar(&forceCancel, "force-cancel", false, "Cancel any previous running tests")
-	runCmd.Flags().StringVar(&branchName, "branch", "", "Branch name to test")
-	runCmd.Flags().StringVar(&branchCommit, "commit", "", "Commit hash to test")
-	runCmd.Flags().StringVar(&url, "url", "", "URL where the application is deployed")
-	runCmd.Flags().StringSliceVar(&labels, "labels", []string{}, "Labels to include in the test run")
-	runCmd.Flags().StringSliceVar(&excludedLabels, "exclude-labels", []string{}, "Labels to exclude from the test run")
-	runCmd.Flags().StringVar(&customName, "name", "", "Custom name for the test run")
-} 
+	rootCmd.AddCommand(runCmd)
+	runCmd.Flags().StringVar(&runBranchName, "branch", "", "Branch name to run tests for")
+	runCmd.Flags().StringVar(&runLabels, "labels", "", "Comma-separated list of labels to filter by")
+	runCmd.Flags().IntVar(&runTimeout, "timeout", 300, "Timeout in seconds to wait for test completion")
+}

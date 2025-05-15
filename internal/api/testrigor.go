@@ -19,6 +19,7 @@ type TestRigorClient struct {
 	cfg        *config.Config
 	debugMode  bool
 	httpClient HTTPClient
+	startTime  time.Time
 }
 
 // NewTestRigorClient creates a new TestRigor API client
@@ -118,8 +119,81 @@ type requestOptions struct {
 	contentType string
 }
 
-// makeRequest handles making HTTP requests with common error handling and debug output
-func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
+// printDebug prints debug information about the request/response
+func (c *TestRigorClient) printDebug(req *http.Request, resp *http.Response, body interface{}, bodyBytes []byte) {
+	if req != nil {
+		fmt.Printf("\nSending %s request to: %s\n", req.Method, req.URL)
+		fmt.Printf("Request headers:\n%s", formatHeaders(req.Header))
+		if body != nil {
+			jsonBody, _ := json.MarshalIndent(body, "", "  ")
+			fmt.Printf("Request body:\n%s\n", string(jsonBody))
+		}
+	}
+
+	if resp != nil {
+		fmt.Printf("Response status: %s\n", resp.Status)
+		fmt.Printf("Response headers:\n%s", formatHeaders(resp.Header))
+	}
+
+	if len(bodyBytes) > 0 {
+		var prettyJSON bytes.Buffer
+		if err := json.Indent(&prettyJSON, bodyBytes, "", "  "); err != nil {
+			fmt.Printf("Response body (raw):\n%s\n", string(bodyBytes))
+		} else {
+			fmt.Printf("Response body:\n%s\n", prettyJSON.String())
+		}
+	}
+}
+
+// handleResponse processes the HTTP response and returns appropriate result or error
+func (c *TestRigorClient) handleResponse(resp *http.Response, bodyBytes []byte) ([]byte, error) {
+	var jsonCheck map[string]interface{}
+	jsonErr := json.Unmarshal(bodyBytes, &jsonCheck)
+
+	switch resp.StatusCode {
+	case 200:
+		return bodyBytes, nil
+	case 227, 228:
+		// Return both body and error to allow status info to be processed while indicating test is in progress
+		return bodyBytes, fmt.Errorf("test in progress")
+	case 230:
+		return bodyBytes, fmt.Errorf("test failed")
+	case 400, 401, 403, 404, 500, 502, 503, 504:
+		if jsonErr != nil {
+			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+		}
+		msg := getString(jsonCheck, "message")
+		details := c.extractErrorDetails(jsonCheck)
+		if msg == "" && details == "" {
+			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+		}
+		return nil, fmt.Errorf("API error (status %d): %s, errors: %s", resp.StatusCode, msg, details)
+	default:
+		if jsonErr == nil {
+			if msg, ok := jsonCheck["message"].(string); ok {
+				return nil, fmt.Errorf("unexpected status code: %d, message: %s", resp.StatusCode, msg)
+			}
+		}
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+}
+
+// extractErrorDetails extracts error details from the JSON response
+func (c *TestRigorClient) extractErrorDetails(jsonCheck map[string]interface{}) string {
+	if errs, ok := jsonCheck["errors"].([]interface{}); ok && len(errs) > 0 {
+		detailStrs := make([]string, 0, len(errs))
+		for _, e := range errs {
+			if s, ok := e.(string); ok {
+				detailStrs = append(detailStrs, s)
+			}
+		}
+		return strings.Join(detailStrs, "; ")
+	}
+	return ""
+}
+
+// prepareRequest prepares the HTTP request with headers and body
+func (c *TestRigorClient) prepareRequest(opts requestOptions) (*http.Request, error) {
 	var bodyReader io.Reader
 	if opts.body != nil {
 		jsonBody, err := json.MarshalIndent(opts.body, "", "  ")
@@ -134,23 +208,40 @@ func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	// Set default headers
 	req.Header.Set("Content-Type", opts.contentType)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("auth-token", c.cfg.TestRigor.AuthToken)
 
-	// Set additional headers
 	for key, value := range opts.headers {
 		req.Header.Set(key, value)
 	}
 
+	return req, nil
+}
+
+// processResponse processes the HTTP response and returns the body
+func (c *TestRigorClient) processResponse(resp *http.Response) ([]byte, error) {
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %v", err)
+	}
+
+	if len(bodyBytes) == 0 {
+		return nil, fmt.Errorf("empty response body")
+	}
+
+	return bodyBytes, nil
+}
+
+// makeRequest handles making HTTP requests with common error handling and debug output
+func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
+	req, err := c.prepareRequest(opts)
+	if err != nil {
+		return nil, err
+	}
+
 	if c.debugMode {
-		fmt.Printf("\nSending %s request to: %s\n", opts.method, req.URL)
-		fmt.Printf("Request headers:\n%s", formatHeaders(req.Header))
-		if opts.body != nil {
-			jsonBody, _ := json.MarshalIndent(opts.body, "", "  ")
-			fmt.Printf("Request body:\n%s\n", string(jsonBody))
-		}
+		c.printDebug(req, nil, opts.body, nil)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -159,96 +250,16 @@ func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	if c.debugMode {
-		fmt.Printf("Response status: %s\n", resp.Status)
-		fmt.Printf("Response headers:\n%s", formatHeaders(resp.Header))
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := c.processResponse(resp)
 	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %v", err)
-	}
-
-	// Check for empty response
-	if len(bodyBytes) == 0 {
-		return nil, fmt.Errorf("empty response body")
+		return nil, err
 	}
 
 	if c.debugMode {
-		var prettyJSON bytes.Buffer
-		if err := json.Indent(&prettyJSON, bodyBytes, "", "  "); err != nil {
-			fmt.Printf("Response body (raw):\n%s\n", string(bodyBytes))
-		} else {
-			fmt.Printf("Response body:\n%s\n", prettyJSON.String())
-		}
+		c.printDebug(nil, resp, nil, bodyBytes)
 	}
 
-	// Always try to parse as JSON for error details
-	var jsonCheck map[string]interface{}
-	jsonErr := json.Unmarshal(bodyBytes, &jsonCheck)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if jsonErr == nil {
-			// Try to extract error details
-			msg := ""
-			if m, ok := jsonCheck["message"].(string); ok {
-				msg = m
-			}
-			details := ""
-			if errs, ok := jsonCheck["errors"].([]interface{}); ok && len(errs) > 0 {
-				detailStrs := make([]string, 0, len(errs))
-				for _, e := range errs {
-					if s, ok := e.(string); ok {
-						detailStrs = append(detailStrs, s)
-					}
-				}
-				details = strings.Join(detailStrs, "; ")
-			}
-			return nil, fmt.Errorf("unexpected status code: %d, message: %s, errors: %s", resp.StatusCode, msg, details)
-		} else {
-			// Not JSON, include truncated raw body
-			maxLen := 200
-			bodyStr := string(bodyBytes)
-			if len(bodyStr) > maxLen {
-				bodyStr = bodyStr[:maxLen] + "..."
-			}
-			return nil, fmt.Errorf("unexpected status code: %d, raw body: %q", resp.StatusCode, bodyStr)
-		}
-	}
-
-	// For 2xx, still check if JSON is valid
-	if jsonErr != nil {
-		return nil, fmt.Errorf("error parsing response: %v", jsonErr)
-	}
-
-	return bodyBytes, nil
-}
-
-// parseErrorResponse parses an error response from the API
-func parseErrorResponse(bodyBytes []byte) error {
-	var errResp struct {
-		Status  int      `json:"status"`
-		Message string   `json:"message"`
-		Errors  []string `json:"errors"`
-		TaskID  string   `json:"taskId,omitempty"`
-	}
-	if err := json.Unmarshal(bodyBytes, &errResp); err != nil {
-		return fmt.Errorf("error parsing error response: %v", err)
-	}
-
-	if len(errResp.Errors) > 0 {
-		return fmt.Errorf("API error: %s - %s", errResp.Message, strings.Join(errResp.Errors, ", "))
-	}
-	return fmt.Errorf("API error: %s", errResp.Message)
-}
-
-// formatHeaders formats HTTP headers for debug output
-func formatHeaders(headers http.Header) string {
-	var result strings.Builder
-	for key, values := range headers {
-		result.WriteString(fmt.Sprintf("%s: %s\n", key, strings.Join(values, ", ")))
-	}
-	return result.String()
+	return c.handleResponse(resp, bodyBytes)
 }
 
 // generateFakeCommitHash generates a fake Git commit hash that looks real but is obviously fake
@@ -262,9 +273,37 @@ func generateFakeCommitHash(timestamp string) string {
 	return fmt.Sprintf("%s%s", base, strings.Repeat("0", 40-len(base)))
 }
 
-// StartTestRun starts a new test run with the given options
-func (c *TestRigorClient) StartTestRun(opts TestRunOptions) (*TestRunResult, error) {
-	// Prepare request body
+// prepareBranchInfo prepares branch information for the test run
+func (c *TestRigorClient) prepareBranchInfo(opts TestRunOptions) (string, map[string]interface{}) {
+	if opts.CommitHash != "" && opts.BranchName == "" {
+		return "", nil
+	}
+
+	if opts.BranchName == "" && len(opts.Labels) == 0 {
+		return "", nil
+	}
+
+	timestamp := time.Now().Format("20060102-150405")
+	branchName := opts.BranchName
+	if branchName == "" {
+		branchName = fmt.Sprintf("fake-branch-%s", timestamp)
+	}
+
+	branchInfo := map[string]string{
+		"name": branchName,
+	}
+
+	if opts.CommitHash != "" {
+		branchInfo["commit"] = opts.CommitHash
+	} else {
+		branchInfo["commit"] = generateFakeCommitHash(timestamp)
+	}
+
+	return branchName, map[string]interface{}{"branch": branchInfo}
+}
+
+// prepareRequestBody prepares the request body for starting a test run
+func (c *TestRigorClient) prepareRequestBody(opts TestRunOptions) (map[string]interface{}, string) {
 	body := map[string]interface{}{
 		"forceCancelPreviousTesting": opts.ForceCancelPreviousTesting,
 		"skipXrayCloud":              !opts.MakeXrayReports,
@@ -272,68 +311,43 @@ func (c *TestRigorClient) StartTestRun(opts TestRunOptions) (*TestRunResult, err
 
 	var branchName string
 
-	// Add test case UUIDs if provided
 	if len(opts.TestCaseUUIDs) > 0 {
 		body["testCaseUuids"] = opts.TestCaseUUIDs
 		if opts.URL != "" {
 			body["url"] = opts.URL
 		}
-	} else {
-		// Handle branch and commit information
-		if opts.CommitHash != "" && opts.BranchName == "" {
-			// Error: Commit hash provided without branch name
-			return nil, fmt.Errorf("commit hash must be accompanied by a branch name")
-		}
+		return body, branchName
+	}
 
-		if opts.BranchName != "" {
-			if opts.CommitHash != "" {
-				// Scenario 1: Real branch and commit provided
-				branchName = opts.BranchName
-				body["branch"] = map[string]string{
-					"name":   branchName,
-					"commit": opts.CommitHash,
-				}
-			} else {
-				// Scenario 2: Branch name only - use fake branch/commit
-				timestamp := time.Now().Format("20060102-150405")
-				branchName = fmt.Sprintf("fake-branch-%s", timestamp)
-				body["branch"] = map[string]string{
-					"name":   branchName,
-					"commit": generateFakeCommitHash(timestamp),
-				}
-			}
-		} else if len(opts.Labels) > 0 {
-			// Scenario 4: No branch/commit, but labels provided - use fake branch/commit
-			timestamp := time.Now().Format("20060102-150405")
-			branchName = fmt.Sprintf("fake-branch-%s", timestamp)
-			body["branch"] = map[string]string{
-				"name":   branchName,
-				"commit": generateFakeCommitHash(timestamp),
-			}
-		}
+	var branchInfo map[string]interface{}
+	branchName, branchInfo = c.prepareBranchInfo(opts)
+	for k, v := range branchInfo {
+		body[k] = v
+	}
 
-		// Add labels if provided
-		if len(opts.Labels) > 0 {
-			body["labels"] = opts.Labels
-			// Always include excludedLabels when using labels
-			if len(opts.ExcludedLabels) > 0 {
-				body["excludedLabels"] = opts.ExcludedLabels
-			} else {
-				body["excludedLabels"] = []string{}
-			}
-		}
+	if len(opts.Labels) > 0 {
+		body["labels"] = opts.Labels
+		body["excludedLabels"] = opts.ExcludedLabels
+	}
 
-		// URL is required when using branch
-		if body["branch"] != nil && opts.URL != "" {
-			body["url"] = opts.URL
-		}
+	if branchInfo != nil && opts.URL != "" {
+		body["url"] = opts.URL
 	}
 
 	if opts.CustomName != "" {
 		body["customName"] = opts.CustomName
 	}
 
-	// Make the request
+	return body, branchName
+}
+
+// StartTestRun starts a new test run with the given options
+func (c *TestRigorClient) StartTestRun(opts TestRunOptions) (*TestRunResult, error) {
+	body, branchName := c.prepareRequestBody(opts)
+
+	// Set the start time when the test run begins
+	c.startTime = time.Now()
+
 	bodyBytes, err := c.makeRequest(requestOptions{
 		method:      "POST",
 		url:         fmt.Sprintf("%s/apps/%s/retest", c.cfg.TestRigor.APIURL, c.cfg.TestRigor.AppID),
@@ -345,13 +359,11 @@ func (c *TestRigorClient) StartTestRun(opts TestRunOptions) (*TestRunResult, err
 		return nil, err
 	}
 
-	// Parse response
 	var result map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("error parsing response: %v", err)
 	}
 
-	// Check for error response
 	if taskID, ok := result["taskId"].(string); ok {
 		return &TestRunResult{
 			TaskID:     taskID,
@@ -359,7 +371,6 @@ func (c *TestRigorClient) StartTestRun(opts TestRunOptions) (*TestRunResult, err
 		}, nil
 	}
 
-	// If we get here, it's an error response
 	return nil, parseErrorResponse(bodyBytes)
 }
 
@@ -387,7 +398,9 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*Te
 		contentType: "application/json",
 		debugMode:   c.debugMode,
 	})
-	if err != nil {
+
+	// For API errors (400, 401, 403, 404, 500, etc.), return the error directly
+	if err != nil && !strings.Contains(err.Error(), "test in progress") && !strings.Contains(err.Error(), "test failed") {
 		return nil, err
 	}
 
@@ -442,13 +455,108 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*Te
 		}
 	}
 
-	return &TestStatus{
+	testStatus := &TestStatus{
 		Status:     status,
 		DetailsURL: detailsURL,
 		TaskID:     taskID,
 		Errors:     errors,
 		Results:    results,
-	}, nil
+	}
+
+	// If we got a "test in progress" error, return both the status and the error
+	if err != nil && strings.Contains(err.Error(), "test in progress") {
+		return testStatus, err
+	}
+
+	// If we got a "test failed" error, return both the status and the error
+	if err != nil && strings.Contains(err.Error(), "test failed") {
+		return testStatus, err
+	}
+
+	return testStatus, nil
+}
+
+// printTestStatus prints the current test status and results
+func (c *TestRigorClient) printTestStatus(status *TestStatus, reason string) {
+	fmt.Printf("\n[%s] Current status: %s\n", reason, status.Status)
+	fmt.Printf("  Passed: %d, Failed: %d, In Progress: %d, In Queue: %d\n",
+		status.Results.Passed,
+		status.Results.Failed,
+		status.Results.InProgress,
+		status.Results.InQueue,
+	)
+}
+
+// printFinalResults prints the final test results and errors
+func (c *TestRigorClient) printFinalResults(status *TestStatus) {
+	duration := time.Since(c.startTime)
+	fmt.Printf("\nTest run completed with status: %s\n", status.Status)
+	fmt.Printf("Total duration: %s\n", duration.Round(time.Second))
+	if status.DetailsURL != "" {
+		fmt.Printf("Details URL: %s\n", status.DetailsURL)
+	}
+
+	fmt.Printf("\nFinal Results:\n")
+	fmt.Printf("  Total: %d\n", status.Results.Total)
+	fmt.Printf("  Passed: %d\n", status.Results.Passed)
+	fmt.Printf("  Failed: %d\n", status.Results.Failed)
+	fmt.Printf("  In Progress: %d\n", status.Results.InProgress)
+	fmt.Printf("  In Queue: %d\n", status.Results.InQueue)
+	fmt.Printf("  Not Started: %d\n", status.Results.NotStarted)
+	fmt.Printf("  Canceled: %d\n", status.Results.Canceled)
+	fmt.Printf("  Crash: %d\n", status.Results.Crash)
+
+	if len(status.Errors) > 0 {
+		fmt.Printf("\nErrors:\n")
+		for _, err := range status.Errors {
+			fmt.Printf("  Category: %s\n", err.Category)
+			fmt.Printf("  Error: %s\n", err.Error)
+			fmt.Printf("  Severity: %s\n", err.Severity)
+			fmt.Printf("  Occurrences: %d\n", err.Occurrences)
+			if err.DetailsURL != "" {
+				fmt.Printf("  Details URL: %s\n", err.DetailsURL)
+			}
+			fmt.Println()
+		}
+	}
+}
+
+// shouldPrintStatus determines if status should be printed based on changes and time
+func (c *TestRigorClient) shouldPrintStatus(status *TestStatus, lastStatus string, lastResults TestResults, lastUpdate time.Time) (bool, string) {
+	if status.Status != lastStatus {
+		return true, "status changed"
+	}
+	if status.Results != lastResults {
+		return true, "results updated"
+	}
+	if time.Since(lastUpdate) >= 30*time.Second {
+		return true, "periodic update"
+	}
+	return false, ""
+}
+
+// handleTestStatus processes the test status and returns appropriate error
+func (c *TestRigorClient) handleTestStatus(status *TestStatus, err error) (bool, error) {
+	if err != nil {
+		switch err.Error() {
+		case "test failed":
+			if status != nil {
+				c.printFinalResults(status)
+			}
+			return false, fmt.Errorf("test run failed")
+		case "test in progress":
+			return true, nil
+		default:
+			return false, fmt.Errorf("error checking status: %v", err)
+		}
+	}
+
+	if isComplete(status.Status) {
+		c.printFinalResults(status)
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // WaitForTestCompletion waits for a test run to complete
@@ -459,83 +567,23 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 
 	for {
 		status, err := c.GetTestStatus(branchName, labels)
+		shouldContinue, err := c.handleTestStatus(status, err)
 		if err != nil {
-			return fmt.Errorf("error checking status: %v", err)
+			return err
 		}
-
-		// Print status changes and periodic updates
-		shouldPrint := false
-		reason := ""
-
-		// Print on status change
-		if status.Status != lastStatus {
-			shouldPrint = true
-			reason = "status changed"
-			lastStatus = status.Status
-		}
-
-		// Print on results change
-		if status.Results != lastResults {
-			shouldPrint = true
-			reason = "results updated"
-			lastResults = status.Results
-		}
-
-		// Print periodic updates (every 30 seconds)
-		if time.Since(lastUpdate) >= 30*time.Second {
-			shouldPrint = true
-			reason = "periodic update"
-			lastUpdate = time.Now()
-		}
-
-		if shouldPrint {
-			fmt.Printf("\n[%s] Current status: %s\n", reason, status.Status)
-			fmt.Printf("  Passed: %d, Failed: %d, In Progress: %d, In Queue: %d\n",
-				status.Results.Passed,
-				status.Results.Failed,
-				status.Results.InProgress,
-				status.Results.InQueue,
-			)
-		}
-
-		// Check if the test run is complete
-		if isComplete(status.Status) {
-			fmt.Printf("\nTest run completed with status: %s\n", status.Status)
-			if status.DetailsURL != "" {
-				fmt.Printf("Details URL: %s\n", status.DetailsURL)
-			}
-
-			// Print final results
-			fmt.Printf("\nFinal Results:\n")
-			fmt.Printf("  Total: %d\n", status.Results.Total)
-			fmt.Printf("  Passed: %d\n", status.Results.Passed)
-			fmt.Printf("  Failed: %d\n", status.Results.Failed)
-			fmt.Printf("  In Progress: %d\n", status.Results.InProgress)
-			fmt.Printf("  In Queue: %d\n", status.Results.InQueue)
-			fmt.Printf("  Not Started: %d\n", status.Results.NotStarted)
-			fmt.Printf("  Canceled: %d\n", status.Results.Canceled)
-			fmt.Printf("  Crash: %d\n", status.Results.Crash)
-
-			// Print errors if any
-			if len(status.Errors) > 0 {
-				fmt.Printf("\nErrors:\n")
-				for _, err := range status.Errors {
-					fmt.Printf("  Category: %s\n", err.Category)
-					fmt.Printf("  Error: %s\n", err.Error)
-					fmt.Printf("  Severity: %s\n", err.Severity)
-					fmt.Printf("  Occurrences: %d\n", err.Occurrences)
-					if err.DetailsURL != "" {
-						fmt.Printf("  Details URL: %s\n", err.DetailsURL)
-					}
-					fmt.Println()
-				}
-			}
-
-			// Return error if test run failed
-			if status.Status == "Failed" {
-				return fmt.Errorf("test run failed")
-			}
+		if !shouldContinue {
 			return nil
+		}
+
+		// Always check for status updates, even when we get a "test in progress" error
+		if status != nil {
+			shouldPrint, reason := c.shouldPrintStatus(status, lastStatus, lastResults, lastUpdate)
+			if shouldPrint {
+				c.printTestStatus(status, reason)
+				lastStatus = status.Status
+				lastResults = status.Results
+				lastUpdate = time.Now()
+			}
 		}
 
 		time.Sleep(time.Duration(pollInterval) * time.Second)
@@ -629,4 +677,31 @@ func (c *TestRigorClient) WaitForJUnitReport(taskID string, pollInterval int, de
 		// Any other error should be returned
 		return err
 	}
+}
+
+// parseErrorResponse parses an error response from the API
+func parseErrorResponse(bodyBytes []byte) error {
+	var errResp struct {
+		Status  int      `json:"status"`
+		Message string   `json:"message"`
+		Errors  []string `json:"errors"`
+		TaskID  string   `json:"taskId,omitempty"`
+	}
+	if err := json.Unmarshal(bodyBytes, &errResp); err != nil {
+		return fmt.Errorf("error parsing error response: %v", err)
+	}
+
+	if len(errResp.Errors) > 0 {
+		return fmt.Errorf("API error: %s - %s", errResp.Message, strings.Join(errResp.Errors, ", "))
+	}
+	return fmt.Errorf("API error: %s", errResp.Message)
+}
+
+// formatHeaders formats HTTP headers for debug output
+func formatHeaders(headers http.Header) string {
+	var result strings.Builder
+	for key, values := range headers {
+		result.WriteString(fmt.Sprintf("%s: %s\n", key, strings.Join(values, ", ")))
+	}
+	return result.String()
 }
