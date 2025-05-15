@@ -850,13 +850,15 @@ func TestGetJUnitReport(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+				// Register cleanup for the test file
+				t.Cleanup(func() {
+					os.Remove("test-report.xml")
+				})
 				// Check if file was created
 				content, err := os.ReadFile("test-report.xml")
 				if assert.NoError(t, err) {
 					assert.Equal(t, tt.expectContent, string(content))
 				}
-				// Clean up
-				os.Remove("test-report.xml")
 			}
 		})
 	}
