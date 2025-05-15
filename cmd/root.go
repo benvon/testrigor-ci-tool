@@ -10,11 +10,25 @@ import (
 
 var (
 	cfgFile string
+	Version string
+	Commit  string
+	Date    string
+
 	rootCmd = &cobra.Command{
 		Use:   "testrigor",
 		Short: "A CLI tool for managing TestRigor test suite runs",
 		Long: `A command line utility for managing TestRigor test suite runs.
 It supports configuration through environment variables, command line flags, and a config file.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// If version flag is set, print version and exit
+			if cmd.Flag("version").Changed {
+				fmt.Fprintf(cmd.OutOrStdout(), "Version: %s\n", Version)
+				fmt.Fprintf(cmd.OutOrStdout(), "Commit: %s\n", Commit)
+				fmt.Fprintf(cmd.OutOrStdout(), "Build Date: %s\n", Date)
+				return nil
+			}
+			return cmd.Help()
+		},
 	}
 )
 
@@ -28,6 +42,7 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.testrigor.yaml)")
+	rootCmd.Flags().Bool("version", false, "Print version information and exit")
 
 	// Add commands
 	rootCmd.AddCommand(runCmd)
