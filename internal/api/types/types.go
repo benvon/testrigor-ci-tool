@@ -42,9 +42,10 @@ type TestResults struct {
 
 // TestStatus represents the current status of a test run
 type TestStatus struct {
-	Status     string
-	DetailsURL string
-	TaskID     string
-	Errors     []TestError
-	Results    TestResults
+	Status         string
+	DetailsURL     string
+	TaskID         string
+	Errors         []TestError
+	Results        TestResults
+	HTTPStatusCode int
 }

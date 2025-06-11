@@ -69,6 +69,9 @@ func (c *TestRigorClient) printDebug(req *http.Request, resp *http.Response, bod
 
 	if resp != nil {
 		fmt.Printf("Response status: %s\n", resp.Status)
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			fmt.Printf("HTTP Status Code: %d\n", resp.StatusCode)
+		}
 		fmt.Printf("Response headers:\n%s", formatHeaders(resp.Header))
 	}
 
@@ -350,16 +353,24 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*ty
 	}
 
 	// Make the request
-	bodyBytes, err := client.MakeRequest(c.httpClient, c.cfg, client.RequestOptions{
-		Method:      "GET",
-		URL:         url,
-		ContentType: "application/json",
-		DebugMode:   c.debugMode,
-	})
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
 
-	// For API errors (400, 401, 403, 404, 500, etc.), return the error directly
-	if err != nil && !strings.Contains(err.Error(), "status 227") && !strings.Contains(err.Error(), "status 228") {
-		return nil, err
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("auth-token", c.cfg.TestRigor.AuthToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %v", err)
 	}
 
 	// Parse response
@@ -423,11 +434,12 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*ty
 	}
 
 	testStatus := &types.TestStatus{
-		Status:     status,
-		DetailsURL: detailsURL,
-		TaskID:     taskID,
-		Errors:     errors,
-		Results:    results,
+		Status:         status,
+		DetailsURL:     detailsURL,
+		TaskID:         taskID,
+		Errors:         errors,
+		Results:        results,
+		HTTPStatusCode: resp.StatusCode,
 	}
 
 	// Check for test crashes in the errors
@@ -437,17 +449,30 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*ty
 		}
 	}
 
-	// If we got a "test in progress" error, return both the status and the error
-	if err != nil && (strings.Contains(err.Error(), "status 227") || strings.Contains(err.Error(), "status 228")) {
-		return testStatus, err
+	// Handle different status codes
+	switch resp.StatusCode {
+	case 200:
+		return testStatus, nil
+	case 227, 228:
+		// These are valid status codes indicating test is in progress
+		return testStatus, nil
+	case 230:
+		// Test failed but this is a normal completion state
+		return testStatus, nil
+	default:
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+		}
+		return testStatus, nil
 	}
-
-	return testStatus, nil
 }
 
 // printTestStatus prints the current test status and results
 func (c *TestRigorClient) printTestStatus(status *types.TestStatus, reason string) {
 	fmt.Printf("\n[%s] Current status: %s\n", reason, status.Status)
+	if status.HTTPStatusCode != 0 && (status.HTTPStatusCode < 200 || status.HTTPStatusCode > 299) {
+		fmt.Printf("HTTP Status Code: %d\n", status.HTTPStatusCode)
+	}
 	fmt.Printf("  Passed: %d, Failed: %d, In Progress: %d, In Queue: %d\n",
 		status.Results.Passed,
 		status.Results.Failed,
@@ -683,6 +708,12 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 			if status.Results.Crash > 0 {
 				statusManager.PrintFinalResults(status)
 				return fmt.Errorf("test crashed: %d test(s) crashed", status.Results.Crash)
+			}
+
+			// Check if test has completed (either passed or failed)
+			if status.Status == "Failed" || status.Results.Failed > 0 || status.HTTPStatusCode == 230 {
+				statusManager.PrintFinalResults(status)
+				return nil // Return nil to indicate normal completion, even if tests failed
 			}
 
 			if utils.CheckTestCompletion(status, debugMode) {
