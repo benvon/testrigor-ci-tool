@@ -36,8 +36,11 @@ func (m *StatusUpdateManager) Update(status *types.TestStatus) {
 
 // printStatus prints the current status
 func (m *StatusUpdateManager) printStatus(status *types.TestStatus) {
-	fmt.Printf("\nStatus: %s | Total: %d | Queue: %d | Running: %d | Passed: %d | Failed: %d | Canceled: %d\n",
-		status.Status,
+	fmt.Printf("\nStatus: %s", status.Status)
+	if status.HTTPStatusCode != 0 && (status.HTTPStatusCode < 200 || status.HTTPStatusCode > 299) {
+		fmt.Printf(" (HTTP %d)", status.HTTPStatusCode)
+	}
+	fmt.Printf(" | Total: %d | Queue: %d | Running: %d | Passed: %d | Failed: %d | Canceled: %d\n",
 		status.Results.Total,
 		status.Results.InQueue,
 		status.Results.InProgress,
@@ -57,8 +60,11 @@ func (m *StatusUpdateManager) printStatus(status *types.TestStatus) {
 
 // PrintFinalResults prints the final test results
 func (m *StatusUpdateManager) PrintFinalResults(status *types.TestStatus) {
-	fmt.Printf("\nTest run completed with status: %s\n", status.Status)
-	fmt.Printf("Final results: Total: %d | Passed: %d | Failed: %d | Canceled: %d | Crash: %d\n",
+	fmt.Printf("\nTest run completed with status: %s", status.Status)
+	if status.HTTPStatusCode != 0 && (status.HTTPStatusCode < 200 || status.HTTPStatusCode > 299) {
+		fmt.Printf(" (HTTP %d)", status.HTTPStatusCode)
+	}
+	fmt.Printf("\nFinal results: Total: %d | Passed: %d | Failed: %d | Canceled: %d | Crash: %d\n",
 		status.Results.Total,
 		status.Results.Passed,
 		status.Results.Failed,
