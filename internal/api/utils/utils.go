@@ -73,8 +73,8 @@ func HandleStatusCheckError(err error, consecutiveErrors *int, maxConsecutiveErr
 		}
 		return true, nil
 	}
-	if strings.Contains(err.Error(), "test failed") {
-		return false, fmt.Errorf("test run failed")
+	if strings.Contains(err.Error(), "test failed") || strings.Contains(err.Error(), "test crashed:") {
+		return false, err
 	}
 	return false, err
 }

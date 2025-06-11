@@ -585,7 +585,54 @@ func TestWaitForTestCompletion(t *testing.T) {
 			errors:         []error{fmt.Errorf("test failed")},
 			timeoutMinutes: 1,
 			wantErr:        true,
-			errMsg:         "test run failed",
+			errMsg:         "error making request: test failed",
+		},
+		{
+			name: "test crash in results",
+			statuses: []map[string]interface{}{
+				{
+					"status": "failed",
+					"overallResults": map[string]interface{}{
+						"Total":       1,
+						"In queue":    0,
+						"In progress": 0,
+						"Failed":      0,
+						"Passed":      0,
+						"Not started": 0,
+						"Canceled":    0,
+						"Crash":       1,
+					},
+				},
+			},
+			errors:         []error{nil},
+			timeoutMinutes: 1,
+			wantErr:        true,
+			errMsg:         "test crashed: 1 test(s) crashed",
+		},
+		{
+			name: "test crash in error message",
+			statuses: []map[string]interface{}{
+				{
+					"status": "failed",
+					"overallResults": map[string]interface{}{
+						"Total":       1,
+						"In queue":    0,
+						"In progress": 0,
+						"Failed":      0,
+						"Passed":      0,
+						"Not started": 0,
+						"Canceled":    0,
+						"Crash":       0,
+					},
+					"errors": []interface{}{
+						"CRASH: API call to 'https://development-eu01-kontoor.demandware.net/s/-/dw/data/v20_4/inventory_lists/wrangler/product_inventory_records/112362911:S' returned HTTP code '404' but expected code is '200'",
+					},
+				},
+			},
+			errors:         []error{nil},
+			timeoutMinutes: 1,
+			wantErr:        true,
+			errMsg:         "test crashed: CRASH: API call to 'https://development-eu01-kontoor.demandware.net/s/-/dw/data/v20_4/inventory_lists/wrangler/product_inventory_records/112362911:S' returned HTTP code '404' but expected code is '200'",
 		},
 	}
 
