@@ -95,7 +95,28 @@ func (c *TestRigorClient) handleResponse(resp *http.Response, bodyBytes []byte) 
 		return bodyBytes, fmt.Errorf("status %d", resp.StatusCode)
 	case 230:
 		return bodyBytes, fmt.Errorf("test failed")
-	case 400, 401, 403, 404, 500, 502, 503, 504:
+	case 404:
+		// Check if this is a test crash error
+		if jsonErr == nil {
+			if errs, ok := jsonCheck["errors"].([]interface{}); ok && len(errs) > 0 {
+				for _, err := range errs {
+					if errStr, ok := err.(string); ok && strings.Contains(errStr, "CRASH:") {
+						return bodyBytes, fmt.Errorf("test crashed: %s", errStr)
+					}
+				}
+			}
+		}
+		// If not a test crash, handle as normal API error
+		if jsonErr != nil {
+			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+		}
+		msg := getString(jsonCheck, "message")
+		details := c.extractErrorDetails(jsonCheck)
+		if msg == "" && details == "" {
+			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+		}
+		return nil, fmt.Errorf("API error (status %d): %s, errors: %s", resp.StatusCode, msg, details)
+	case 400, 401, 403, 500, 502, 503, 504:
 		if jsonErr != nil {
 			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
 		}
@@ -373,6 +394,15 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*ty
 					DetailsURL:  utils.GetString(errMap, "detailsUrl"),
 				}
 				errors = append(errors, testErr)
+			} else if errStr, ok := err.(string); ok {
+				// Handle string errors (like CRASH messages)
+				testErr := types.TestError{
+					Category:    "CRASH",
+					Error:       errStr,
+					Occurrences: 1,
+					Severity:    "BLOCKER",
+				}
+				errors = append(errors, testErr)
 			}
 		}
 	}
@@ -398,6 +428,13 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*ty
 		TaskID:     taskID,
 		Errors:     errors,
 		Results:    results,
+	}
+
+	// Check for test crashes in the errors
+	for _, err := range errors {
+		if strings.Contains(err.Error, "CRASH:") {
+			return testStatus, fmt.Errorf("test crashed: %s", err.Error)
+		}
 	}
 
 	// If we got a "test in progress" error, return both the status and the error
@@ -623,6 +660,13 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 		retries++
 		status, err := c.GetTestStatus(branchName, labels)
 		if err != nil {
+			// Check if this is a test crash error
+			if strings.Contains(err.Error(), "test crashed:") {
+				if status != nil {
+					statusManager.PrintFinalResults(status)
+				}
+				return err
+			}
 			shouldContinue, err := utils.HandleStatusCheckError(err, &consecutiveErrors, maxConsecutiveErrors, debugMode)
 			if !shouldContinue {
 				return err
@@ -634,6 +678,13 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 
 		if status != nil {
 			statusManager.Update(status)
+
+			// Check for test crashes in the results
+			if status.Results.Crash > 0 {
+				statusManager.PrintFinalResults(status)
+				return fmt.Errorf("test crashed: %d test(s) crashed", status.Results.Crash)
+			}
+
 			if utils.CheckTestCompletion(status, debugMode) {
 				statusManager.PrintFinalResults(status)
 				return nil
