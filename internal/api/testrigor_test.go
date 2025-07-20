@@ -766,6 +766,30 @@ func TestPrepareBranchInfo(t *testing.T) {
 			},
 		},
 		{
+			name: "with labels only",
+			opts: types.TestRunOptions{
+				Labels: []string{"smoke", "regression"},
+			},
+			expected: map[string]interface{}{
+				"branch": map[string]string{
+					"name":   "smoke-regression", // Should match the pattern but timestamp will vary
+					"commit": "66616b65",         // Should start with this
+				},
+			},
+		},
+		{
+			name: "with single label",
+			opts: types.TestRunOptions{
+				Labels: []string{"smoke"},
+			},
+			expected: map[string]interface{}{
+				"branch": map[string]string{
+					"name":   "smoke",    // Should match the pattern but timestamp will vary
+					"commit": "66616b65", // Should start with this
+				},
+			},
+		},
+		{
 			name: "with commit hash only",
 			opts: types.TestRunOptions{
 				CommitHash: "abc123",
@@ -788,11 +812,26 @@ func TestPrepareBranchInfo(t *testing.T) {
 				assert.Empty(t, branchName)
 				assert.Nil(t, branchInfo)
 			} else {
-				assert.Equal(t, tt.opts.BranchName, branchName)
 				assert.NotNil(t, branchInfo)
 				expectedBranch := tt.expected["branch"].(map[string]string)
 				actualBranch := branchInfo["branch"].(map[string]string)
-				assert.Equal(t, expectedBranch["name"], actualBranch["name"])
+
+				// Check branch name based on the test case
+				if tt.opts.BranchName != "" {
+					// If explicit branch name is provided, it should match exactly
+					assert.Equal(t, tt.opts.BranchName, branchName)
+					assert.Equal(t, expectedBranch["name"], actualBranch["name"])
+				} else if len(tt.opts.Labels) > 0 {
+					// If labels are provided, check that the branch name starts with the joined labels
+					expectedLabelPart := strings.Join(tt.opts.Labels, "-")
+					assert.True(t, strings.HasPrefix(branchName, expectedLabelPart),
+						"Branch name '%s' should start with '%s'", branchName, expectedLabelPart)
+					assert.True(t, strings.HasPrefix(actualBranch["name"], expectedLabelPart),
+						"Branch info name '%s' should start with '%s'", actualBranch["name"], expectedLabelPart)
+					// Should also contain a timestamp (format: YYYYMMDD-HHMMSS)
+					assert.Regexp(t, `^\d{8}-\d{6}$`, strings.TrimPrefix(branchName, expectedLabelPart+"-"))
+				}
+
 				if tt.opts.CommitHash != "" {
 					assert.Equal(t, expectedBranch["commit"], actualBranch["commit"])
 				} else {
