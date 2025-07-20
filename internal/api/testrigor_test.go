@@ -948,8 +948,15 @@ func TestWaitForJUnitReport(t *testing.T) {
 				},
 			}, mockClient)
 
+			// Define constants for test parameters
+			const (
+				pollInterval   = 1
+				retryOnFailure = false
+				maxRetries     = 2
+			)
+
 			// Execute test with a short poll interval and very few retries for fast testing
-			err := client.WaitForJUnitReportWithRetries(tt.taskID, 1, false, 2)
+			err := client.WaitForJUnitReportWithRetries(tt.taskID, pollInterval, retryOnFailure, maxRetries)
 
 			if tt.expectedError != "" {
 				assert.Error(t, err)
