@@ -19,10 +19,11 @@ import (
 
 // TestRigorClient handles interactions with the TestRigor API
 type TestRigorClient struct {
-	cfg        *config.Config
-	debugMode  bool
-	httpClient client.HTTPClient
-	startTime  time.Time
+	cfg               *config.Config
+	debugMode         bool
+	httpClient        client.HTTPClient
+	startTime         time.Time
+	statusInterpreter *StatusInterpreter
 }
 
 // NewTestRigorClient creates a new TestRigor API client
@@ -33,17 +34,16 @@ func NewTestRigorClient(cfg *config.Config, httpClient ...client.HTTPClient) *Te
 	} else {
 		c = client.NewDefaultHTTPClient()
 	}
-	return &TestRigorClient{cfg: cfg, httpClient: c}
+	return &TestRigorClient{
+		cfg:               cfg,
+		httpClient:        c,
+		statusInterpreter: NewStatusInterpreter(),
+	}
 }
 
 // SetDebugMode enables or disables debug output
 func (c *TestRigorClient) SetDebugMode(debug bool) {
 	c.debugMode = debug
-}
-
-// HTTPClient interface for making HTTP requests
-type HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
 }
 
 // requestOptions contains options for making HTTP requests
@@ -83,74 +83,6 @@ func (c *TestRigorClient) printDebug(req *http.Request, resp *http.Response, bod
 			fmt.Printf("Response body:\n%s\n", prettyJSON.String())
 		}
 	}
-}
-
-// handleResponse processes the HTTP response and returns appropriate result or error
-func (c *TestRigorClient) handleResponse(resp *http.Response, bodyBytes []byte) ([]byte, error) {
-	var jsonCheck map[string]interface{}
-	jsonErr := json.Unmarshal(bodyBytes, &jsonCheck)
-
-	switch resp.StatusCode {
-	case 200:
-		return bodyBytes, nil
-	case 227, 228:
-		// These are normal status codes indicating test is in progress
-		return bodyBytes, fmt.Errorf("status %d", resp.StatusCode)
-	case 230:
-		return bodyBytes, fmt.Errorf("test failed")
-	case 404:
-		// Check if this is a test crash error
-		if jsonErr == nil {
-			if errs, ok := jsonCheck["errors"].([]interface{}); ok && len(errs) > 0 {
-				for _, err := range errs {
-					if errStr, ok := err.(string); ok && strings.Contains(errStr, "CRASH:") {
-						return bodyBytes, fmt.Errorf("test crashed: %s", errStr)
-					}
-				}
-			}
-		}
-		// If not a test crash, handle as normal API error
-		if jsonErr != nil {
-			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
-		}
-		msg := getString(jsonCheck, "message")
-		details := c.extractErrorDetails(jsonCheck)
-		if msg == "" && details == "" {
-			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
-		}
-		return nil, fmt.Errorf("API error (status %d): %s, errors: %s", resp.StatusCode, msg, details)
-	case 400, 401, 403, 500, 502, 503, 504:
-		if jsonErr != nil {
-			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
-		}
-		msg := getString(jsonCheck, "message")
-		details := c.extractErrorDetails(jsonCheck)
-		if msg == "" && details == "" {
-			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
-		}
-		return nil, fmt.Errorf("API error (status %d): %s, errors: %s", resp.StatusCode, msg, details)
-	default:
-		if jsonErr == nil {
-			if msg, ok := jsonCheck["message"].(string); ok {
-				return nil, fmt.Errorf("unexpected status code: %d, message: %s", resp.StatusCode, msg)
-			}
-		}
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-}
-
-// extractErrorDetails extracts error details from the JSON response
-func (c *TestRigorClient) extractErrorDetails(jsonCheck map[string]interface{}) string {
-	if errs, ok := jsonCheck["errors"].([]interface{}); ok && len(errs) > 0 {
-		detailStrs := make([]string, 0, len(errs))
-		for _, e := range errs {
-			if s, ok := e.(string); ok {
-				detailStrs = append(detailStrs, s)
-			}
-		}
-		return strings.Join(detailStrs, "; ")
-	}
-	return ""
 }
 
 // prepareRequest prepares the HTTP request with headers and body
@@ -220,18 +152,8 @@ func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
 		c.printDebug(nil, resp, nil, bodyBytes)
 	}
 
-	return c.handleResponse(resp, bodyBytes)
-}
-
-// generateFakeCommitHash generates a fake Git commit hash that looks real but is obviously fake
-func generateFakeCommitHash(timestamp string) string {
-	// Remove hyphens from timestamp
-	cleanTimestamp := strings.ReplaceAll(timestamp, "-", "")
-	// Start with "fake" in hex (66616b65) followed by timestamp and padded with zeros
-	// This ensures it's 40 characters and starts with "fake" in hex
-	base := fmt.Sprintf("66616b65%s", cleanTimestamp)
-	// Pad with zeros to reach 40 characters
-	return fmt.Sprintf("%s%s", base, strings.Repeat("0", 40-len(base)))
+	// Use centralized status interpreter
+	return c.statusInterpreter.InterpretResponse(resp.StatusCode, bodyBytes)
 }
 
 // prepareBranchInfo prepares branch information for the test run
@@ -373,98 +295,8 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*ty
 		return nil, fmt.Errorf("error reading response body: %v", err)
 	}
 
-	// Parse response
-	var result map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return nil, fmt.Errorf("error parsing response: %v", err)
-	}
-
-	// Get status from response
-	status, _ := result["status"].(string)
-	detailsURL, _ := result["detailsUrl"].(string)
-
-	// Extract task ID from details URL if present
-	var taskID string
-	if detailsURL != "" {
-		parts := strings.Split(detailsURL, "/")
-		if len(parts) > 0 {
-			taskID = parts[len(parts)-1]
-		}
-	}
-
-	// Parse errors if present
-	var errors []types.TestError
-	if errList, ok := result["errors"].([]interface{}); ok {
-		for _, err := range errList {
-			if errMap, ok := err.(map[string]interface{}); ok {
-				testErr := types.TestError{
-					Category:    utils.GetString(errMap, "category"),
-					Error:       utils.GetString(errMap, "error"),
-					Occurrences: utils.GetInt(errMap, "occurrences"),
-					Severity:    utils.GetString(errMap, "severity"),
-					DetailsURL:  utils.GetString(errMap, "detailsUrl"),
-				}
-				errors = append(errors, testErr)
-			} else if errStr, ok := err.(string); ok {
-				// Handle string errors (like CRASH messages)
-				testErr := types.TestError{
-					Category:    "CRASH",
-					Error:       errStr,
-					Occurrences: 1,
-					Severity:    "BLOCKER",
-				}
-				errors = append(errors, testErr)
-			}
-		}
-	}
-
-	// Parse overall results if present
-	var results types.TestResults
-	if resultsMap, ok := result["overallResults"].(map[string]interface{}); ok {
-		results = types.TestResults{
-			Total:      utils.GetInt(resultsMap, "Total"),
-			InQueue:    utils.GetInt(resultsMap, "In queue"),
-			InProgress: utils.GetInt(resultsMap, "In progress"),
-			Failed:     utils.GetInt(resultsMap, "Failed"),
-			Passed:     utils.GetInt(resultsMap, "Passed"),
-			Canceled:   utils.GetInt(resultsMap, "Canceled"),
-			NotStarted: utils.GetInt(resultsMap, "Not started"),
-			Crash:      utils.GetInt(resultsMap, "Crash"),
-		}
-	}
-
-	testStatus := &types.TestStatus{
-		Status:         status,
-		DetailsURL:     detailsURL,
-		TaskID:         taskID,
-		Errors:         errors,
-		Results:        results,
-		HTTPStatusCode: resp.StatusCode,
-	}
-
-	// Check for test crashes in the errors
-	for _, err := range errors {
-		if strings.Contains(err.Error, "CRASH:") {
-			return testStatus, fmt.Errorf("test crashed: %s", err.Error)
-		}
-	}
-
-	// Handle different status codes
-	switch resp.StatusCode {
-	case 200:
-		return testStatus, nil
-	case 227, 228:
-		// These are valid status codes indicating test is in progress
-		return testStatus, nil
-	case 230:
-		// Test failed but this is a normal completion state
-		return testStatus, nil
-	default:
-		if resp.StatusCode >= 400 {
-			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
-		}
-		return testStatus, nil
-	}
+	// Use centralized status interpreter to parse the response
+	return c.statusInterpreter.ParseTestStatus(resp.StatusCode, bodyBytes)
 }
 
 // printTestStatus prints the current test status and results
@@ -726,36 +558,6 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 	}
 }
 
-// isComplete checks if a test status indicates completion
-func isComplete(status string) bool {
-	completeStates := map[string]bool{
-		"completed": true,
-		"failed":    true,
-		"error":     true,
-		"cancelled": true,
-		"canceled":  true,
-	}
-	return completeStates[strings.ToLower(status)]
-}
-
-// Helper functions for parsing JSON values
-func getString(m map[string]interface{}, key string) string {
-	if val, ok := m[key].(string); ok {
-		return val
-	}
-	return ""
-}
-
-func getInt(m map[string]interface{}, key string) int {
-	if val, ok := m[key].(float64); ok {
-		return int(val)
-	}
-	if val, ok := m[key].(int); ok {
-		return val
-	}
-	return 0
-}
-
 // GetJUnitReport gets the JUnit report for a test run
 func (c *TestRigorClient) GetJUnitReport(taskID string, debugMode bool) error {
 	// Build URL using api2.testrigor.com for JUnit report endpoint
@@ -798,7 +600,11 @@ func (c *TestRigorClient) GetJUnitReport(taskID string, debugMode bool) error {
 
 // WaitForJUnitReport waits for the JUnit report to be ready and downloads it
 func (c *TestRigorClient) WaitForJUnitReport(taskID string, pollInterval int, debugMode bool) error {
-	maxRetries := 60 // e.g., wait up to 60 * pollInterval seconds
+	return c.WaitForJUnitReportWithRetries(taskID, pollInterval, debugMode, 60)
+}
+
+// WaitForJUnitReportWithRetries waits for the JUnit report to be ready and downloads it with configurable retries
+func (c *TestRigorClient) WaitForJUnitReportWithRetries(taskID string, pollInterval int, debugMode bool, maxRetries int) error {
 	retries := 0
 	for {
 		if retries >= maxRetries {
@@ -823,24 +629,6 @@ func (c *TestRigorClient) WaitForJUnitReport(taskID string, pollInterval int, de
 		// Any other error should be returned
 		return err
 	}
-}
-
-// parseErrorResponse parses an error response from the API
-func parseErrorResponse(bodyBytes []byte) error {
-	var errResp struct {
-		Status  int      `json:"status"`
-		Message string   `json:"message"`
-		Errors  []string `json:"errors"`
-		TaskID  string   `json:"taskId,omitempty"`
-	}
-	if err := json.Unmarshal(bodyBytes, &errResp); err != nil {
-		return fmt.Errorf("error parsing error response: %v", err)
-	}
-
-	if len(errResp.Errors) > 0 {
-		return fmt.Errorf("API error: %s - %s", errResp.Message, strings.Join(errResp.Errors, ", "))
-	}
-	return fmt.Errorf("API error: %s", errResp.Message)
 }
 
 // formatHeaders formats HTTP headers for debug output
