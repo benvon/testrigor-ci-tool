@@ -790,6 +790,30 @@ func TestPrepareBranchInfo(t *testing.T) {
 			},
 		},
 		{
+			name: "with multiple labels",
+			opts: types.TestRunOptions{
+				Labels: []string{"smoke", "regression", "api"},
+			},
+			expected: map[string]interface{}{
+				"branch": map[string]string{
+					"name":   "smoke-regression-api", // Should match the pattern but timestamp will vary
+					"commit": "66616b65",             // Should start with this
+				},
+			},
+		},
+		{
+			name: "with labels containing special characters",
+			opts: types.TestRunOptions{
+				Labels: []string{"smoke_test", "regression-test", "api_v1"},
+			},
+			expected: map[string]interface{}{
+				"branch": map[string]string{
+					"name":   "smoke_test-regression-test-api_v1", // Should match the pattern but timestamp will vary
+					"commit": "66616b65",                          // Should start with this
+				},
+			},
+		},
+		{
 			name: "with commit hash only",
 			opts: types.TestRunOptions{
 				CommitHash: "abc123",
@@ -830,6 +854,11 @@ func TestPrepareBranchInfo(t *testing.T) {
 						"Branch info name '%s' should start with '%s'", actualBranch["name"], expectedLabelPart)
 					// Should also contain a timestamp (format: YYYYMMDD-HHMMSS)
 					assert.Regexp(t, `^\d{8}-\d{6}$`, strings.TrimPrefix(branchName, expectedLabelPart+"-"))
+
+					// Validate the complete branch name format: {labels}-{timestamp}
+					expectedPattern := fmt.Sprintf(`^%s-\d{8}-\d{6}$`, strings.ReplaceAll(expectedLabelPart, "-", "\\-"))
+					assert.Regexp(t, expectedPattern, branchName,
+						"Branch name '%s' should match pattern '%s'", branchName, expectedPattern)
 				}
 
 				if tt.opts.CommitHash != "" {
