@@ -169,7 +169,14 @@ func (c *TestRigorClient) prepareBranchInfo(opts types.TestRunOptions) (string, 
 	timestamp := time.Now().Format("20060102-150405")
 	branchName := opts.BranchName
 	if branchName == "" {
-		branchName = fmt.Sprintf("fake-branch-%s", timestamp)
+		// Use labels to generate branch name if available, otherwise use fake-branch
+		if len(opts.Labels) > 0 {
+			// Join labels with hyphens and add timestamp for uniqueness
+			labelPart := strings.Join(opts.Labels, "-")
+			branchName = fmt.Sprintf("%s-%s", labelPart, timestamp)
+		} else {
+			branchName = fmt.Sprintf("fake-branch-%s", timestamp)
+		}
 	}
 
 	branchInfo := map[string]string{
