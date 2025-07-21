@@ -141,7 +141,13 @@ func (c *TestRigorClient) makeRequest(opts requestOptions) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			if c.debugMode {
+				fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+			}
+		}
+	}()
 
 	bodyBytes, err := c.processResponse(resp)
 	if err != nil {
@@ -295,7 +301,13 @@ func (c *TestRigorClient) GetTestStatus(branchName string, labels []string) (*ty
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			if c.debugMode {
+				fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+			}
+		}
+	}()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -366,110 +378,6 @@ func (c *TestRigorClient) shouldPrintStatus(status *types.TestStatus, lastStatus
 		return true, "periodic update"
 	}
 	return false, ""
-}
-
-// handleTestStatus processes the test status and returns appropriate error
-func (c *TestRigorClient) handleTestStatus(status *types.TestStatus, err error) (bool, error) {
-	if err != nil {
-		switch err.Error() {
-		case "test failed":
-			if status != nil {
-				c.printFinalResults(status)
-			}
-			return false, fmt.Errorf("test run failed")
-		case "test in progress":
-			return true, nil
-		default:
-			return false, fmt.Errorf("error checking status: %v", err)
-		}
-	}
-
-	if utils.CheckTestCompletion(status, c.debugMode) {
-		c.printFinalResults(status)
-		return false, nil
-	}
-
-	return true, nil
-}
-
-// checkTimeout verifies if the maximum wait time has been exceeded
-func (c *TestRigorClient) checkTimeout(startTime time.Time, maxWaitTime time.Duration) error {
-	if time.Since(startTime) > maxWaitTime {
-		return fmt.Errorf("test run timed out after %v", maxWaitTime)
-	}
-	return nil
-}
-
-// handleStatusCheckError processes status check errors and returns whether to continue
-func (c *TestRigorClient) handleStatusCheckError(err error, consecutiveErrors *int, maxConsecutiveErrors int, debugMode bool) (bool, error) {
-	if strings.Contains(err.Error(), "status 227") || strings.Contains(err.Error(), "status 228") {
-		*consecutiveErrors++
-		if *consecutiveErrors >= maxConsecutiveErrors {
-			return false, fmt.Errorf("received %d consecutive errors while checking test status: %v", *consecutiveErrors, err)
-		}
-		if debugMode {
-			fmt.Printf("Error checking status (attempt %d/%d): %v\n", *consecutiveErrors, maxConsecutiveErrors, err)
-		}
-		return true, nil
-	}
-	if strings.Contains(err.Error(), "test failed") {
-		return false, fmt.Errorf("test run failed")
-	}
-	return false, err
-}
-
-// checkTestCompletion verifies if all tests have completed execution
-func (c *TestRigorClient) checkTestCompletion(status *types.TestStatus, debugMode bool) bool {
-	if status.Results.Total > 0 &&
-		status.Results.InQueue == 0 &&
-		status.Results.InProgress == 0 &&
-		status.Results.NotStarted == 0 {
-		if debugMode {
-			fmt.Printf("\nAll tests have finished execution. Final status: %s\n", status.Status)
-		}
-		c.printFinalResults(status)
-		return true
-	}
-	return false
-}
-
-// pollTestStatus handles a single polling iteration for test status
-func (c *TestRigorClient) pollTestStatus(branchName string, labels []string, debugMode bool) (*types.TestStatus, error) {
-	status, err := c.GetTestStatus(branchName, labels)
-	if err != nil {
-		return status, err
-	}
-	return status, nil
-}
-
-// updateStatusDisplay updates the status display if needed
-func (c *TestRigorClient) updateStatusDisplay(status *types.TestStatus, lastStatus *string, lastResults *types.TestResults, lastUpdate *time.Time) {
-	shouldPrint, reason := c.shouldPrintStatus(status, *lastStatus, *lastResults, *lastUpdate)
-	if shouldPrint {
-		c.printTestStatus(status, reason)
-		*lastStatus = status.Status
-		*lastResults = status.Results
-		*lastUpdate = time.Now()
-	}
-}
-
-// handlePollingError processes polling errors and returns whether to continue
-func (c *TestRigorClient) handlePollingError(err error, consecutiveErrors *int, maxConsecutiveErrors int, debugMode bool, pollInterval int) (bool, error) {
-	if err != nil {
-		// Check if it's a test in progress status code
-		if strings.Contains(err.Error(), "status 227") || strings.Contains(err.Error(), "status 228") {
-			time.Sleep(time.Duration(pollInterval) * time.Second)
-			return true, nil
-		}
-
-		shouldContinue, err := c.handleStatusCheckError(err, consecutiveErrors, maxConsecutiveErrors, debugMode)
-		if !shouldContinue {
-			return false, err
-		}
-		time.Sleep(time.Duration(pollInterval) * time.Second)
-		return true, nil
-	}
-	return true, nil
 }
 
 // CancelTestRun cancels a running test
@@ -597,7 +505,7 @@ func (c *TestRigorClient) GetJUnitReport(taskID string, debugMode bool) error {
 	if err != nil {
 		// Check if it's a "report not ready" error
 		if strings.Contains(err.Error(), "Report still being generated") {
-			return fmt.Errorf("Report still being generated")
+			return fmt.Errorf("report still being generated")
 		}
 		return err
 	}

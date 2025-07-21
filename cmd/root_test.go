@@ -19,9 +19,10 @@ It supports configuration through environment variables, command line flags, and
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// If version flag is set, print version and exit
 			if cmd.Flag("version").Changed {
-				fmt.Fprintf(cmd.OutOrStdout(), "Version: %s\n", Version)
-				fmt.Fprintf(cmd.OutOrStdout(), "Commit: %s\n", Commit)
-				fmt.Fprintf(cmd.OutOrStdout(), "Build Date: %s\n", Date)
+				// In test context, we can ignore these errors as they're not critical for the test
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Version: %s\n", Version)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Commit: %s\n", Commit)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Build Date: %s\n", Date)
 				return nil
 			}
 			return cmd.Help()

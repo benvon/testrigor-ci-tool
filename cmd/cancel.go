@@ -44,7 +44,11 @@ var (
 			if err != nil {
 				return fmt.Errorf("error sending request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+				}
+			}()
 
 			if resp.StatusCode != http.StatusOK {
 				return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -58,5 +62,7 @@ var (
 
 func init() {
 	cancelCmd.Flags().StringVar(&runID, "run-id", "", "ID of the run to cancel")
-	cancelCmd.MarkFlagRequired("run-id")
-} 
+	if err := cancelCmd.MarkFlagRequired("run-id"); err != nil {
+		fmt.Printf("Warning: failed to mark run-id flag as required: %v\n", err)
+	}
+}

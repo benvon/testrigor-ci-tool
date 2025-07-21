@@ -33,10 +33,18 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("testrigor.errorontestfailure", false)
 
 	// Bind environment variables
-	viper.BindEnv("testrigor.authtoken", "TESTRIGOR_AUTH_TOKEN")
-	viper.BindEnv("testrigor.appid", "TESTRIGOR_APP_ID")
-	viper.BindEnv("testrigor.apiurl", "TESTRIGOR_API_URL")
-	viper.BindEnv("testrigor.errorontestfailure", "TR_CI_ERROR_ON_TEST_FAILURE")
+	if err := viper.BindEnv("testrigor.authtoken", "TESTRIGOR_AUTH_TOKEN"); err != nil {
+		return nil, fmt.Errorf("failed to bind auth token env var: %v", err)
+	}
+	if err := viper.BindEnv("testrigor.appid", "TESTRIGOR_APP_ID"); err != nil {
+		return nil, fmt.Errorf("failed to bind app ID env var: %v", err)
+	}
+	if err := viper.BindEnv("testrigor.apiurl", "TESTRIGOR_API_URL"); err != nil {
+		return nil, fmt.Errorf("failed to bind API URL env var: %v", err)
+	}
+	if err := viper.BindEnv("testrigor.errorontestfailure", "TR_CI_ERROR_ON_TEST_FAILURE"); err != nil {
+		return nil, fmt.Errorf("failed to bind error on test failure env var: %v", err)
+	}
 
 	// Create config structure
 	config := &Config{

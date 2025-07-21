@@ -22,8 +22,6 @@ import (
 // MockHTTPClient is a mock implementation of the HTTPClient interface
 type MockHTTPClient struct {
 	mock.Mock
-	statuses []*types.TestStatus
-	errors   []error
 }
 
 func (m *MockHTTPClient) Do(req *http.Request) (*http.Response, error) {
@@ -341,9 +339,9 @@ func TestPrintTestStatus(t *testing.T) {
 	client.printTestStatus(status, "test reason")
 
 	// Restore stdout
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 
 	output := buf.String()
 	assert.Contains(t, output, "Current status: In Progress")
@@ -390,9 +388,9 @@ func TestPrintFinalResults(t *testing.T) {
 	client.printFinalResults(status)
 
 	// Restore stdout
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 
 	output := buf.String()
 	assert.Contains(t, output, "Test run completed with status: Completed")
@@ -706,12 +704,12 @@ func TestPrintDebug(t *testing.T) {
 	})
 
 	// Restore stdout
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 
 	// Read captured output
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 
 	// Verify output
 	assert.NoError(t, err)
@@ -896,7 +894,7 @@ func TestGetJUnitReport(t *testing.T) {
 			taskID:        "task-123",
 			mockResponse:  `{"status": 404, "message": "Report still being generated"}`,
 			responseCode:  404,
-			expectedError: "Report still being generated",
+			expectedError: "report still being generated",
 		},
 	}
 
@@ -935,7 +933,7 @@ func TestGetJUnitReport(t *testing.T) {
 				_, err := os.Stat("test-report.xml")
 				assert.NoError(t, err)
 				// Clean up
-				os.Remove("test-report.xml")
+				_ = os.Remove("test-report.xml")
 			}
 
 			// Verify that all expectations were met
@@ -1035,7 +1033,7 @@ func TestWaitForJUnitReport(t *testing.T) {
 				_, err := os.Stat("test-report.xml")
 				assert.NoError(t, err)
 				// Clean up
-				os.Remove("test-report.xml")
+				_ = os.Remove("test-report.xml")
 			}
 
 			// Verify that all expectations were met

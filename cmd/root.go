@@ -22,9 +22,15 @@ It supports configuration through environment variables, command line flags, and
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// If version flag is set, print version and exit
 			if cmd.Flag("version").Changed {
-				fmt.Fprintf(cmd.OutOrStdout(), "Version: %s\n", Version)
-				fmt.Fprintf(cmd.OutOrStdout(), "Commit: %s\n", Commit)
-				fmt.Fprintf(cmd.OutOrStdout(), "Build Date: %s\n", Date)
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Version: %s\n", Version); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Commit: %s\n", Commit); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Build Date: %s\n", Date); err != nil {
+					return err
+				}
 				return nil
 			}
 			return cmd.Help()
