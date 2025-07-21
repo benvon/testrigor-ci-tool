@@ -506,7 +506,16 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 	retries := 0
 	consecutiveErrors := 0
 	maxConsecutiveErrors := 5
-	statusManager := client.NewStatusUpdateManager(debugMode, time.Duration(pollInterval)*time.Second)
+	// Use a shorter interval for status updates to provide more frequent feedback
+	// while still polling at the configured interval
+	statusUpdateInterval := time.Duration(5) * time.Second // Show status every 5 seconds
+	if pollInterval < 5 {
+		statusUpdateInterval = time.Duration(pollInterval) * time.Second
+	}
+	statusManager := client.NewStatusUpdateManager(debugMode, statusUpdateInterval)
+
+	// Show initial waiting message
+	fmt.Printf("\nWaiting for test completion... (polling every %d seconds)\n", pollInterval)
 
 	// Ensure we cancel the test if we exit early
 	defer func() {
@@ -535,13 +544,21 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 			if !shouldContinue {
 				return err
 			}
+
+			// Show a simple message when waiting for test to be ready
+			if strings.Contains(err.Error(), "status 404") || strings.Contains(err.Error(), "API error (status 404)") {
+				fmt.Printf("Waiting for test to be ready...\n")
+			}
+
 			time.Sleep(time.Duration(pollInterval) * time.Second)
 			continue
 		}
 		consecutiveErrors = 0
 
+		// Use the heartbeat update method to ensure we always get some output
+		statusManager.UpdateWithHeartbeat(status, retries, maxRetries)
+
 		if status != nil {
-			statusManager.Update(status)
 
 			// Check for test crashes in the results
 			if status.Results.Crash > 0 {

@@ -78,6 +78,18 @@ func HandleStatusCheckError(err error, consecutiveErrors *int, maxConsecutiveErr
 		return true, nil
 	}
 
+	// Check for 404 errors (test not found yet) - these should be treated as "not ready yet"
+	if strings.Contains(err.Error(), "status 404") || strings.Contains(err.Error(), "API error (status 404)") {
+		*consecutiveErrors++
+		if *consecutiveErrors >= maxConsecutiveErrors {
+			return false, fmt.Errorf("received %d consecutive errors while checking test status: %v", *consecutiveErrors, err)
+		}
+		if debugMode {
+			fmt.Printf("Test not ready yet (attempt %d/%d): %v\n", *consecutiveErrors, maxConsecutiveErrors, err)
+		}
+		return true, nil
+	}
+
 	// Check for test failure or crash
 	if strings.Contains(err.Error(), "test failed") || strings.Contains(err.Error(), "test crashed:") {
 		return false, err

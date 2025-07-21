@@ -240,6 +240,26 @@ func TestHandleStatusCheckError(t *testing.T) {
 			expectedError:          true,
 			expectedConsecutiveErr: 0,
 		},
+		{
+			name:                   "status 404 error",
+			err:                    fmt.Errorf("API error (status 404): Test not found"),
+			consecutiveErrors:      0,
+			maxConsecutiveErrors:   5,
+			debugMode:              false,
+			expectedContinue:       true,
+			expectedError:          false,
+			expectedConsecutiveErr: 1,
+		},
+		{
+			name:                   "status 404 error with different format",
+			err:                    fmt.Errorf("status 404"),
+			consecutiveErrors:      0,
+			maxConsecutiveErrors:   5,
+			debugMode:              false,
+			expectedContinue:       true,
+			expectedError:          false,
+			expectedConsecutiveErr: 1,
+		},
 	}
 
 	for _, tt := range tests {
