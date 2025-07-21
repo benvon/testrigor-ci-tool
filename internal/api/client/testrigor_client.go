@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/benvon/testrigor-ci-tool/internal/api/types"
 	"github.com/benvon/testrigor-ci-tool/internal/config"
@@ -357,7 +358,7 @@ func (c *TestRigorClient) getInt(m map[string]interface{}, key string) int {
 
 // generateBranchName generates a branch name from labels.
 func (c *TestRigorClient) generateBranchName(labels []string) string {
-	timestamp := fmt.Sprintf("%d", 1234567890) // Simplified for now
+	timestamp := fmt.Sprintf("%d", time.Now().Unix()) // Generate current Unix timestamp
 	if len(labels) > 0 {
 		labelPart := strings.Join(labels, "-")
 		return fmt.Sprintf("%s-%s", labelPart, timestamp)

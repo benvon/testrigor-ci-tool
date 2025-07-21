@@ -64,7 +64,7 @@ func TestNewTestRunner(t *testing.T) {
 			APIURL:    "https://api.testrigor.com/api/v1",
 		},
 	}
-	
+
 	httpClient := client.NewDefaultHTTPClient()
 	logger := &MockLogger{}
 
@@ -141,7 +141,7 @@ func TestTestRunner_ExecuteTestRun_Success(t *testing.T) {
 	assert.Equal(t, "test-branch", result.BranchName)
 	assert.True(t, result.Success)
 	assert.Equal(t, finalStatus, result.Status)
-	
+
 	mockClient.AssertExpectations(t)
 	assert.NotEmpty(t, logger.logs)
 }
@@ -177,7 +177,7 @@ func TestTestRunner_ExecuteTestRun_StartError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "failed to start test run")
-	
+
 	mockClient.AssertExpectations(t)
 }
 
@@ -233,7 +233,7 @@ func TestTestRunner_ExecuteTestRun_WithReport(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.NotEmpty(t, result.ReportPath)
-	
+
 	mockClient.AssertExpectations(t)
 }
 
@@ -291,7 +291,7 @@ func TestTestRunner_monitorTestExecution_Timeout(t *testing.T) {
 	runner.apiClient = mockClient
 
 	runConfig := TestRunConfig{
-		Options: types.TestRunOptions{},
+		Options:      types.TestRunOptions{},
 		PollInterval: 50 * time.Millisecond,
 		Timeout:      100 * time.Millisecond, // Very short timeout
 		DebugMode:    false,
@@ -489,13 +489,13 @@ func TestTestRunner_logRunParameters(t *testing.T) {
 
 	runConfig := TestRunConfig{
 		Options: types.TestRunOptions{
-			BranchName:     "test-branch",
-			CommitHash:     "abc123",
-			URL:            "https://example.com",
-			Labels:         []string{"smoke", "regression"},
-			ExcludedLabels: []string{"slow"},
-			CustomName:     "Custom Test Run",
-			TestCaseUUIDs:  []string{"uuid-1", "uuid-2"},
+			BranchName:                 "test-branch",
+			CommitHash:                 "abc123",
+			URL:                        "https://example.com",
+			Labels:                     []string{"smoke", "regression"},
+			ExcludedLabels:             []string{"slow"},
+			CustomName:                 "Custom Test Run",
+			TestCaseUUIDs:              []string{"uuid-1", "uuid-2"},
 			ForceCancelPreviousTesting: true,
 		},
 	}
@@ -574,12 +574,12 @@ func TestTestRunner_printFinalResults(t *testing.T) {
 
 func TestDefaultLogger(t *testing.T) {
 	logger := DefaultLogger{}
-	
+
 	// Test that these don't panic
 	assert.NotPanics(t, func() {
 		logger.Printf("Test %s", "message")
 	})
-	
+
 	assert.NotPanics(t, func() {
 		logger.Println("Test message")
 	})

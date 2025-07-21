@@ -50,21 +50,21 @@ func (d DefaultLogger) Println(args ...interface{}) {
 
 // TestRunConfig contains configuration for a test run execution.
 type TestRunConfig struct {
-	Options       types.TestRunOptions
-	PollInterval  time.Duration
-	Timeout       time.Duration
-	FetchReport   bool
-	DebugMode     bool
+	Options      types.TestRunOptions
+	PollInterval time.Duration
+	Timeout      time.Duration
+	FetchReport  bool
+	DebugMode    bool
 }
 
 // TestRunResult contains the complete result of a test run execution.
 type TestRunResult struct {
-	TaskID       string
-	BranchName   string
-	Status       *types.TestStatus
-	Duration     time.Duration
-	ReportPath   string
-	Success      bool
+	TaskID     string
+	BranchName string
+	Status     *types.TestStatus
+	Duration   time.Duration
+	ReportPath string
+	Success    bool
 }
 
 // NewTestRunner creates a new test runner orchestrator.
@@ -84,7 +84,7 @@ func NewTestRunner(cfg *config.Config, httpClient client.HTTPClient, logger Logg
 // This is the main orchestrator function that coordinates multiple primitives.
 func (tr *TestRunner) ExecuteTestRun(ctx context.Context, runConfig TestRunConfig) (*TestRunResult, error) {
 	startTime := time.Now()
-	
+
 	tr.logRunParameters(runConfig)
 
 	// Step 1: Start the test run
@@ -105,7 +105,7 @@ func (tr *TestRunner) ExecuteTestRun(ctx context.Context, runConfig TestRunConfi
 	}
 
 	duration := time.Since(startTime)
-	
+
 	// Step 3: Determine success
 	success := tr.isTestRunSuccessful(finalStatus)
 
@@ -236,40 +236,40 @@ func (tr *TestRunner) isTestRunSuccessful(status *types.TestStatus) bool {
 	}
 
 	// Success if completed with no failures or crashes
-	return status.Status == types.StatusCompleted && 
-		   status.Results.Failed == 0 && 
-		   status.Results.Crash == 0
+	return status.Status == types.StatusCompleted &&
+		status.Results.Failed == 0 &&
+		status.Results.Crash == 0
 }
 
 // logRunParameters logs the test run parameters.
 func (tr *TestRunner) logRunParameters(runConfig TestRunConfig) {
 	tr.logger.Println("Starting test run with parameters:")
 	tr.logger.Printf("  Branch: %s\n", runConfig.Options.BranchName)
-	
+
 	if runConfig.Options.CommitHash != "" {
 		tr.logger.Printf("  Commit: %s\n", runConfig.Options.CommitHash)
 	}
-	
+
 	if runConfig.Options.URL != "" {
 		tr.logger.Printf("  URL: %s\n", runConfig.Options.URL)
 	}
-	
+
 	if len(runConfig.Options.Labels) > 0 {
 		tr.logger.Printf("  Labels: %v\n", runConfig.Options.Labels)
 	}
-	
+
 	if len(runConfig.Options.ExcludedLabels) > 0 {
 		tr.logger.Printf("  Excluded Labels: %v\n", runConfig.Options.ExcludedLabels)
 	}
-	
+
 	if runConfig.Options.CustomName != "" {
 		tr.logger.Printf("  Custom Name: %s\n", runConfig.Options.CustomName)
 	}
-	
+
 	if len(runConfig.Options.TestCaseUUIDs) > 0 {
 		tr.logger.Printf("  Test Cases: %v\n", runConfig.Options.TestCaseUUIDs)
 	}
-	
+
 	tr.logger.Printf("  Force Cancel Previous: %v\n", runConfig.Options.ForceCancelPreviousTesting)
 	tr.logger.Println()
 }
@@ -277,19 +277,19 @@ func (tr *TestRunner) logRunParameters(runConfig TestRunConfig) {
 // printStatusUpdate prints a status update.
 func (tr *TestRunner) printStatusUpdate(status *types.TestStatus) {
 	tr.logger.Printf("[%s] Test Status: %s\n", time.Now().Format("15:04:05"), status.Status)
-	
+
 	if status.HTTPStatusCode != 0 && (status.HTTPStatusCode < 200 || status.HTTPStatusCode > 299) {
 		tr.logger.Printf("  HTTP Status Code: %d\n", status.HTTPStatusCode)
 	}
-	
+
 	total := status.Results.Total
 	completed := status.Results.Passed + status.Results.Failed + status.Results.Canceled + status.Results.Crash
-	
+
 	var progressPercent float64
 	if total > 0 {
 		progressPercent = float64(completed) / float64(total) * 100
 	}
-	
+
 	tr.logger.Printf("  Progress: %d/%d tests completed | Queue: %d | Running: %d | Passed: %d | Failed: %d | Canceled: %d (%.1f%% complete)\n",
 		completed, total,
 		status.Results.InQueue,
@@ -305,7 +305,7 @@ func (tr *TestRunner) printStatusUpdate(status *types.TestStatus) {
 func (tr *TestRunner) printFinalResults(status *types.TestStatus, duration time.Duration) {
 	tr.logger.Printf("\nTest run completed with status: %s\n", status.Status)
 	tr.logger.Printf("Total duration: %s\n", duration.Round(time.Second))
-	
+
 	if status.DetailsURL != "" {
 		tr.logger.Printf("Details URL: %s\n", status.DetailsURL)
 	}

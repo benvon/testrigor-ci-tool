@@ -26,7 +26,7 @@ such as:
 If no branch name is provided, one will be automatically generated.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			
+
 			// Load configuration
 			cfg, err := config.LoadConfig()
 			if err != nil {
@@ -57,7 +57,7 @@ If no branch name is provided, one will be automatically generated.`,
 
 			// Check final result against configuration
 			if !result.Success && cfg.TestRigor.ErrorOnTestFailure {
-				return fmt.Errorf("test run failed: %d failed, %d crashed", 
+				return fmt.Errorf("test run failed: %d failed, %d crashed",
 					result.Status.Results.Failed, result.Status.Results.Crash)
 			}
 
