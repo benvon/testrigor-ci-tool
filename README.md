@@ -193,7 +193,7 @@ The tool provides resilient status reporting with the following features:
 
 ```
 [20:47:24] Test Status: in_progress
-  Progress: 5/10 tests | Queue: 2 | Running: 3 | Passed: 4 | Failed: 1 | Canceled: 0 (50.0% complete)
+  Progress: 5/10 tests completed | Queue: 2 | Running: 3 | Passed: 4 | Failed: 1 | Canceled: 0 (50.0% complete)
 
 Test run completed with status: completed
 Total duration: 2m 15s

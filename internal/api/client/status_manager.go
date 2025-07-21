@@ -43,13 +43,13 @@ func (m *StatusUpdateManager) Update(status *types.TestStatus) {
 }
 
 // UpdateWithHeartbeat updates the status display and provides a heartbeat message if no meaningful changes
-func (m *StatusUpdateManager) UpdateWithHeartbeat(status *types.TestStatus, attempt int, maxAttempts int) {
+func (m *StatusUpdateManager) UpdateWithHeartbeat(status *types.TestStatus, pollAttempt int, maxPollAttempts int) {
 	now := time.Now()
 	timeSinceLast := now.Sub(m.lastUpdate)
 
 	if timeSinceLast < m.updateInterval {
 		// Even if we can't update the status, show a heartbeat message
-		fmt.Printf("Still waiting... (attempt %d/%d)\n", attempt, maxAttempts)
+		fmt.Printf("Still waiting... (poll attempt %d/%d)\n", pollAttempt, maxPollAttempts)
 		return
 	}
 
@@ -72,11 +72,11 @@ func (m *StatusUpdateManager) UpdateWithHeartbeat(status *types.TestStatus, atte
 			m.lastResults = status.Results
 			m.printStatus(status)
 		} else {
-			fmt.Printf("Waiting for test status... (attempt %d/%d)\n", attempt, maxAttempts)
+			fmt.Printf("Waiting for test status... (poll attempt %d/%d)\n", pollAttempt, maxPollAttempts)
 		}
 	} else {
 		// Show heartbeat message
-		fmt.Printf("Still waiting... (attempt %d/%d)\n", attempt, maxAttempts)
+		fmt.Printf("Still waiting... (poll attempt %d/%d)\n", pollAttempt, maxPollAttempts)
 	}
 }
 
@@ -87,8 +87,9 @@ func (m *StatusUpdateManager) printStatus(status *types.TestStatus) {
 	if status.HTTPStatusCode != 0 && (status.HTTPStatusCode < 200 || status.HTTPStatusCode > 299) {
 		fmt.Printf(" (HTTP %d)", status.HTTPStatusCode)
 	}
-	fmt.Printf("\n  Progress: %d/%d tests | Queue: %d | Running: %d | Passed: %d | Failed: %d | Canceled: %d",
-		status.Results.Passed+status.Results.Failed+status.Results.Canceled,
+	completed := status.Results.Passed + status.Results.Failed + status.Results.Canceled
+	fmt.Printf("\n  Progress: %d/%d tests completed | Queue: %d | Running: %d | Passed: %d | Failed: %d | Canceled: %d",
+		completed,
 		status.Results.Total,
 		status.Results.InQueue,
 		status.Results.InProgress,
@@ -99,7 +100,6 @@ func (m *StatusUpdateManager) printStatus(status *types.TestStatus) {
 
 	// Show progress percentage if we have total tests
 	if status.Results.Total > 0 {
-		completed := status.Results.Passed + status.Results.Failed + status.Results.Canceled
 		percentage := float64(completed) / float64(status.Results.Total) * 100
 		fmt.Printf(" (%.1f%% complete)", percentage)
 	}

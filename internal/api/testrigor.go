@@ -410,8 +410,8 @@ func (c *TestRigorClient) CancelTestRun(branchName string, labels []string) erro
 
 // WaitForTestCompletion waits for a test run to complete
 func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []string, pollInterval int, debugMode bool, timeoutMinutes int) error {
-	maxRetries := (timeoutMinutes * 60) / pollInterval // Convert timeout to number of retries
-	retries := 0
+	maxPollAttempts := (timeoutMinutes * 60) / pollInterval // Convert timeout to number of polling attempts
+	pollAttempts := 0
 	consecutiveErrors := 0
 	maxConsecutiveErrors := 5
 	// Use a shorter interval for status updates to provide more frequent feedback
@@ -435,10 +435,10 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 	}()
 
 	for {
-		if retries >= maxRetries {
+		if pollAttempts >= maxPollAttempts {
 			return fmt.Errorf("timed out waiting for test completion after %d minutes", timeoutMinutes)
 		}
-		retries++
+		pollAttempts++
 		status, err := c.GetTestStatus(branchName, labels)
 		if err != nil {
 			// Check if this is a test crash error
@@ -464,7 +464,7 @@ func (c *TestRigorClient) WaitForTestCompletion(branchName string, labels []stri
 		consecutiveErrors = 0
 
 		// Use the heartbeat update method to ensure we always get some output
-		statusManager.UpdateWithHeartbeat(status, retries, maxRetries)
+		statusManager.UpdateWithHeartbeat(status, pollAttempts, maxPollAttempts)
 
 		if status != nil {
 
@@ -537,12 +537,12 @@ func (c *TestRigorClient) WaitForJUnitReport(taskID string, pollInterval int, de
 
 // WaitForJUnitReportWithRetries waits for the JUnit report to be ready and downloads it with configurable retries
 func (c *TestRigorClient) WaitForJUnitReportWithRetries(taskID string, pollInterval int, debugMode bool, maxRetries int) error {
-	retries := 0
+	pollAttempts := 0
 	for {
-		if retries >= maxRetries {
+		if pollAttempts >= maxRetries {
 			return fmt.Errorf("timed out waiting for JUnit report after %d attempts", maxRetries)
 		}
-		retries++
+		pollAttempts++
 		err := c.GetJUnitReport(taskID, debugMode)
 		if err == nil {
 			// Report successfully downloaded
@@ -552,7 +552,7 @@ func (c *TestRigorClient) WaitForJUnitReportWithRetries(taskID string, pollInter
 		// Check if we should keep waiting
 		if strings.Contains(err.Error(), "still being generated") || strings.Contains(err.Error(), "API request failed with status 404") {
 			if debugMode {
-				fmt.Printf("Waiting for JUnit report to be generated... (attempt %d/%d)\n", retries, maxRetries)
+				fmt.Printf("Waiting for JUnit report to be generated... (attempt %d/%d)\n", pollAttempts, maxRetries)
 			}
 			time.Sleep(time.Duration(pollInterval) * time.Second)
 			continue
