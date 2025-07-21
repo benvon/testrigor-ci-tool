@@ -2,8 +2,122 @@ version: "2"
 
 run:
   timeout: 5m
-  go: "1.24.3"
+  go: '1.24'
+
+linters:
+  enable:
+    # Default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    
+    # Additional recommended linters
+    - gocyclo          # Cyclomatic complexity
+    - gofmt           # Code formatting
+    - goimports       # Import formatting  
+    - gosec           # Security issues
+    - misspell        # Spelling mistakes
+    - unparam         # Unused parameters
+    - unconvert       # Unnecessary conversions
+    - goconst         # Repeated strings
+    - gofumpt         # Stricter gofmt
+    - revive          # Replacement for golint
+    - prealloc        # Slice preallocation
+    - exportloopref   # Loop variable capture
+    - nilerr          # Nil error checks
+    - nilnil          # Nil pointer checks
+    - wrapcheck       # Error wrapping
+    - errorlint       # Error handling
+    - contextcheck    # Context usage
+    - dupl            # Duplicate code
+    - gocritic        # Various checks
+    - funlen          # Function length
+    - lll             # Line length
+    - nestif          # Nested if statements
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+    
+  funlen:
+    lines: 80
+    statements: 50
+    
+  lll:
+    line-length: 120
+    
+  nestif:
+    min-complexity: 4
+    
+  dupl:
+    threshold: 100
+    
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+    
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport # https://github.com/go-critic/go-critic/issues/845
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+        arguments:
+          - "checkPrivateReceivers"
+          - "sayRepetitiveInsteadOfStutters"
+      - name: package-comments
+        severity: warning
+        disabled: false
+      - name: function-result-limit
+        severity: warning
+        disabled: false
+        arguments: [3]
+      - name: function-length
+        severity: warning
+        disabled: false
+        arguments: [80, 50]
+      - name: cognitive-complexity
+        severity: warning
+        disabled: false
+        arguments: [15]
 
 issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0 
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - funlen
+        
+    # Exclude lll issues for long lines with go:generate
+    - linters:
+        - lll
+      source: "^//go:generate "
+      
+  # Maximum count of issues with the same text
+  max-same-issues: 0
+  
+  # Show only new issues created after git revision
+  new: false
+  
+  # Maximum issues count per one linter
+  max-issues-per-linter: 0 

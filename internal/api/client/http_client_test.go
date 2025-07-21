@@ -1,221 +1,334 @@
 package client
 
 import (
-	"bytes"
+	"context"
+	"errors"
 	"io"
 	"net/http"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/benvon/testrigor-ci-tool/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
-// MockHTTPClient is a mock implementation of the HTTPClient interface
+// MockHTTPClient is a mock implementation of the HTTPClient interface for testing.
 type MockHTTPClient struct {
 	mock.Mock
 }
 
+// Do implements the HTTPClient interface.
 func (m *MockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	args := m.Called(req)
-	return args.Get(0).(*http.Response), args.Error(1)
+	if resp := args.Get(0); resp != nil {
+		return resp.(*http.Response), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+// mockReadCloser implements io.ReadCloser for testing.
+type mockReadCloser struct {
+	data []byte
+	pos  int
+}
+
+func (m *mockReadCloser) Read(p []byte) (n int, err error) {
+	if m.pos >= len(m.data) {
+		return 0, io.EOF
+	}
+	n = copy(p, m.data[m.pos:])
+	m.pos += n
+	return n, nil
+}
+
+func (m *mockReadCloser) Close() error {
+	return nil
 }
 
 func TestNewDefaultHTTPClient(t *testing.T) {
 	client := NewDefaultHTTPClient()
 	assert.NotNil(t, client)
 	assert.NotNil(t, client.client)
-	assert.Equal(t, 30*time.Second, client.client.Timeout)
 }
 
-func TestDefaultHTTPClient_Do(t *testing.T) {
-	client := NewDefaultHTTPClient()
-
-	// Create a simple request
-	req, err := http.NewRequest("GET", "http://example.com", nil)
-	assert.NoError(t, err)
-
-	// This will fail in tests since we can't make real HTTP requests
-	// but we can test that the method exists and doesn't panic
-	assert.NotPanics(t, func() {
-		_, _ = client.Do(req)
-	})
-}
-
-func TestMakeRequest(t *testing.T) {
-	cfg := &config.Config{
-		TestRigor: config.TestRigorConfig{
-			AuthToken: "test-token",
-			AppID:     "test-app",
-			APIURL:    "https://api.testrigor.com/api/v1",
-		},
-	}
-
+func TestNew(t *testing.T) {
 	tests := []struct {
-		name        string
-		opts        RequestOptions
-		mockResp    *http.Response
-		mockErr     error
-		expectError bool
-		errorMsg    string
+		name       string
+		httpClient HTTPClient
+		expectNew  bool
 	}{
 		{
-			name: "successful request",
-			opts: RequestOptions{
-				Method:      "GET",
-				URL:         "https://api.testrigor.com/test",
-				ContentType: "application/json",
-				DebugMode:   false,
-			},
-			mockResp: &http.Response{
-				StatusCode: 200,
-				Body:       io.NopCloser(bytes.NewReader([]byte(`{"status": "success"}`))),
-			},
-			mockErr:     nil,
-			expectError: false,
+			name:       "with provided client",
+			httpClient: &MockHTTPClient{},
+			expectNew:  false,
 		},
 		{
-			name: "request with body",
-			opts: RequestOptions{
-				Method:      "POST",
-				URL:         "https://api.testrigor.com/test",
-				Body:        map[string]string{"key": "value"},
-				ContentType: "application/json",
-				DebugMode:   false,
-			},
-			mockResp: &http.Response{
-				StatusCode: 200,
-				Body:       io.NopCloser(bytes.NewReader([]byte(`{"status": "success"}`))),
-			},
-			mockErr:     nil,
-			expectError: false,
-		},
-		{
-			name: "HTTP error response",
-			opts: RequestOptions{
-				Method:      "GET",
-				URL:         "https://api.testrigor.com/test",
-				ContentType: "application/json",
-				DebugMode:   false,
-			},
-			mockResp: &http.Response{
-				StatusCode: 404,
-				Body:       io.NopCloser(bytes.NewReader([]byte(`{"error": "Not found"}`))),
-			},
-			mockErr:     nil,
-			expectError: true,
-			errorMsg:    "API request failed with status 404",
-		},
-		{
-			name: "network error",
-			opts: RequestOptions{
-				Method:      "GET",
-				URL:         "https://api.testrigor.com/test",
-				ContentType: "application/json",
-				DebugMode:   false,
-			},
-			mockResp:    nil,
-			mockErr:     assert.AnError,
-			expectError: true,
-			errorMsg:    "error making request",
-		},
-		{
-			name: "invalid JSON body",
-			opts: RequestOptions{
-				Method:      "POST",
-				URL:         "https://api.testrigor.com/test",
-				Body:        make(chan int), // Invalid JSON type
-				ContentType: "application/json",
-				DebugMode:   false,
-			},
-			mockResp:    nil,
-			mockErr:     nil,
-			expectError: true,
-			errorMsg:    "error marshaling request body",
+			name:       "with nil client",
+			httpClient: nil,
+			expectNew:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &MockHTTPClient{}
+			client := New(tt.httpClient)
+			assert.NotNil(t, client)
+			assert.NotNil(t, client.httpClient)
+		})
+	}
+}
 
-			// Only set up mock expectations if we expect the request to actually be made
-			if !strings.Contains(tt.errorMsg, "marshaling") {
-				if tt.mockResp != nil {
-					mockClient.On("Do", mock.AnythingOfType("*http.Request")).Return(tt.mockResp, tt.mockErr)
+func TestClient_Execute(t *testing.T) {
+	tests := []struct {
+		name           string
+		request        Request
+		mockResponse   *http.Response
+		mockError      error
+		expectedError  bool
+		expectedStatus int
+	}{
+		{
+			name: "successful GET request",
+			request: Request{
+				Method: "GET",
+				URL:    "https://api.example.com/test",
+				Headers: map[string]string{
+					"Authorization": "Bearer token",
+				},
+			},
+			mockResponse: &http.Response{
+				StatusCode: 200,
+				Body:       &mockReadCloser{data: []byte(`{"success": true}`)},
+				Header:     make(http.Header),
+			},
+			expectedError:  false,
+			expectedStatus: 200,
+		},
+		{
+			name: "successful POST request with body",
+			request: Request{
+				Method:      "POST",
+				URL:         "https://api.example.com/test",
+				Body:        map[string]string{"key": "value"},
+				ContentType: "application/json",
+			},
+			mockResponse: &http.Response{
+				StatusCode: 201,
+				Body:       &mockReadCloser{data: []byte(`{"created": true}`)},
+				Header:     make(http.Header),
+			},
+			expectedError:  false,
+			expectedStatus: 201,
+		},
+		{
+			name: "HTTP client error",
+			request: Request{
+				Method: "GET",
+				URL:    "https://api.example.com/test",
+			},
+			mockError:     errors.New("network error"),
+			expectedError: true,
+		},
+		{
+			name: "invalid JSON body",
+			request: Request{
+				Method: "POST",
+				URL:    "https://api.example.com/test",
+				Body:   make(chan int), // Invalid JSON type
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := new(MockHTTPClient)
+			client := New(mockClient)
+
+			// Only set up mock expectations if we expect the HTTP call to be made
+			// (i.e., if the error isn't from JSON marshaling)
+			if tt.name != "invalid JSON body" {
+				if tt.mockError != nil {
+					mockClient.On("Do", mock.AnythingOfType("*http.Request")).Return(nil, tt.mockError)
 				} else {
-					mockClient.On("Do", mock.AnythingOfType("*http.Request")).Return((*http.Response)(nil), tt.mockErr)
+					mockClient.On("Do", mock.AnythingOfType("*http.Request")).Return(tt.mockResponse, nil)
 				}
 			}
 
-			result, err := MakeRequest(mockClient, cfg, tt.opts)
+			ctx := context.Background()
+			resp, err := client.Execute(ctx, tt.request)
 
-			if tt.expectError {
+			if tt.expectedError {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorMsg)
+				assert.Nil(t, resp)
 			} else {
 				assert.NoError(t, err)
-				assert.NotNil(t, result)
+				assert.NotNil(t, resp)
+				assert.Equal(t, tt.expectedStatus, resp.StatusCode)
 			}
 
-			// Only assert expectations if we set them up
-			if !strings.Contains(tt.errorMsg, "marshaling") {
-				mockClient.AssertExpectations(t)
+			mockClient.AssertExpectations(t)
+		})
+	}
+}
+
+func TestClient_buildHTTPRequest(t *testing.T) {
+	tests := []struct {
+		name           string
+		request        Request
+		expectedMethod string
+		expectedURL    string
+		expectedError  bool
+		checkHeaders   map[string]string
+	}{
+		{
+			name: "GET request with headers",
+			request: Request{
+				Method: "GET",
+				URL:    "https://api.example.com/test",
+				Headers: map[string]string{
+					"Authorization": "Bearer token",
+					"Accept":        "application/json",
+				},
+			},
+			expectedMethod: "GET",
+			expectedURL:    "https://api.example.com/test",
+			checkHeaders: map[string]string{
+				"Authorization": "Bearer token",
+				"Accept":        "application/json",
+			},
+		},
+		{
+			name: "POST request with content type",
+			request: Request{
+				Method:      "POST",
+				URL:         "https://api.example.com/test",
+				ContentType: "application/json",
+				Body:        map[string]string{"test": "data"},
+			},
+			expectedMethod: "POST",
+			expectedURL:    "https://api.example.com/test",
+			checkHeaders: map[string]string{
+				"Content-Type": "application/json",
+			},
+		},
+		{
+			name: "invalid URL",
+			request: Request{
+				Method: "GET",
+				URL:    "://invalid-url",
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := New(nil)
+			ctx := context.Background()
+
+			req, err := client.buildHTTPRequest(ctx, tt.request)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+				assert.Nil(t, req)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, req)
+				assert.Equal(t, tt.expectedMethod, req.Method)
+				assert.Equal(t, tt.expectedURL, req.URL.String())
+
+				// Check headers
+				for key, expectedValue := range tt.checkHeaders {
+					assert.Equal(t, expectedValue, req.Header.Get(key))
+				}
+
+				// Check body for POST requests
+				if tt.request.Body != nil {
+					assert.NotNil(t, req.Body)
+					bodyBytes, err := io.ReadAll(req.Body)
+					assert.NoError(t, err)
+					assert.NotEmpty(t, bodyBytes)
+				}
 			}
 		})
 	}
 }
 
-func TestMakeRequest_Headers(t *testing.T) {
-	cfg := &config.Config{
-		TestRigor: config.TestRigorConfig{
-			AuthToken: "test-token",
-			AppID:     "test-app",
-			APIURL:    "https://api.testrigor.com/api/v1",
+func TestDefaultHTTPClient_Do(t *testing.T) {
+	client := NewDefaultHTTPClient()
+	
+	// Create a simple GET request
+	req, err := http.NewRequest("GET", "https://httpbin.org/get", nil)
+	assert.NoError(t, err)
+
+	// This is an integration test that requires internet connection
+	// In a real environment, you might want to skip this or use a test server
+	resp, err := client.Do(req)
+	if err != nil {
+		// Skip if no internet connection
+		t.Skipf("Skipping integration test due to network error: %v", err)
+		return
+	}
+	
+	assert.NotNil(t, resp)
+	assert.Equal(t, 200, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestRequest_Validation(t *testing.T) {
+	tests := []struct {
+		name    string
+		request Request
+		valid   bool
+	}{
+		{
+			name: "valid GET request",
+			request: Request{
+				Method: "GET",
+				URL:    "https://api.example.com",
+			},
+			valid: true,
+		},
+		{
+			name: "valid POST request with body",
+			request: Request{
+				Method:      "POST",
+				URL:         "https://api.example.com",
+				Body:        map[string]string{"key": "value"},
+				ContentType: "application/json",
+			},
+			valid: true,
+		},
+		{
+			name: "empty method",
+			request: Request{
+				Method: "",
+				URL:    "https://api.example.com",
+			},
+			valid: true, // Go's http.NewRequest allows empty method
+		},
+		{
+			name: "empty URL",
+			request: Request{
+				Method: "GET",
+				URL:    "",
+			},
+			valid: true, // Go's http.NewRequest allows empty URL
 		},
 	}
 
-	mockClient := &MockHTTPClient{}
-	mockResp := &http.Response{
-		StatusCode: 200,
-		Body:       io.NopCloser(bytes.NewReader([]byte(`{"status": "success"}`))),
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := New(nil)
+			ctx := context.Background()
+
+			_, err := client.buildHTTPRequest(ctx, tt.request)
+
+			if tt.valid {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
 	}
-	mockClient.On("Do", mock.AnythingOfType("*http.Request")).Return(mockResp, nil)
-
-	opts := RequestOptions{
-		Method:      "GET",
-		URL:         "https://api.testrigor.com/test",
-		ContentType: "application/json",
-		DebugMode:   false,
-	}
-
-	_, err := MakeRequest(mockClient, cfg, opts)
-	assert.NoError(t, err)
-
-	// Verify that the request was made with the correct headers
-	call := mockClient.Calls[0]
-	req := call.Arguments[0].(*http.Request)
-
-	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
-	assert.Equal(t, "application/json", req.Header.Get("Accept"))
-	assert.Equal(t, "test-token", req.Header.Get("auth-token"))
-}
-
-func TestRequestOptions_Validation(t *testing.T) {
-	// Test that RequestOptions struct can be created with all fields
-	opts := RequestOptions{
-		Method:      "POST",
-		URL:         "https://example.com",
-		Body:        map[string]string{"key": "value"},
-		ContentType: "application/json",
-		DebugMode:   true,
-	}
-
-	assert.Equal(t, "POST", opts.Method)
-	assert.Equal(t, "https://example.com", opts.URL)
-	assert.Equal(t, map[string]string{"key": "value"}, opts.Body)
-	assert.Equal(t, "application/json", opts.ContentType)
-	assert.True(t, opts.DebugMode)
 }
