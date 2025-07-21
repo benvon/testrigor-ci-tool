@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	runIDFlag = "run-id"
+)
+
 var (
 	cancelCmd = &cobra.Command{
 		Use:   "cancel",
@@ -24,7 +28,7 @@ var (
 			}
 
 			// Extract flags
-			runID, _ := cmd.Flags().GetString("run-id")
+			runID, _ := cmd.Flags().GetString(runIDFlag)
 
 			// Validate required parameters
 			if runID == "" {
@@ -37,7 +41,7 @@ var (
 
 			// Cancel the test run
 			fmt.Printf("Canceling test run with ID: %s\n", runID)
-			
+
 			err = apiClient.CancelTestRun(ctx, runID)
 			if err != nil {
 				return fmt.Errorf("failed to cancel test run: %w", err)
@@ -50,8 +54,10 @@ var (
 )
 
 func init() {
-	cancelCmd.Flags().String("run-id", "", "ID of the run to cancel (required)")
-	
+	cancelCmd.Flags().String(runIDFlag, "", "ID of the run to cancel (required)")
+
 	// Mark run-id as required
-	cancelCmd.MarkFlagRequired("run-id")
+	if err := cancelCmd.MarkFlagRequired(runIDFlag); err != nil {
+		panic(err)
+	}
 }

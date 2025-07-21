@@ -113,15 +113,15 @@ jobs:
         run: |
           COVERAGE=$(go tool cover -func=coverage/coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')
           echo "Test coverage: ${COVERAGE}%"
-          if (( $(echo "$COVERAGE < 70" | bc -l) )); then
-            echo "Test coverage is below 70%"
-            exit 1
-          fi
+          echo "$COVERAGE" | awk '{if ($1 < 70) {exit 1}}' || { 
+            echo "Test coverage is below 70%"; 
+            exit 1; 
+          }
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          file: ./coverage/coverage.out
+          files: ./coverage/coverage.out
           flags: unittests
           name: codecov-umbrella
 

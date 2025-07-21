@@ -7,90 +7,103 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLoadConfig_WithValidEnvironment(t *testing.T) {
+const (
+	authTokenEnvVar           = "TESTRIGOR_AUTH_TOKEN"
+	appIDEnvVar               = "TESTRIGOR_APP_ID"
+	apiURLEnvVar              = "TESTRIGOR_API_URL"
+	errorOnTestFailureEnvVar  = "TR_CI_ERROR_ON_TEST_FAILURE"
+	authTokenDefault          = "test-token"
+	appIDDefault              = "test-app"
+	apiURLDefault             = "https://api.testrigor.com/api/v1"
+	errorOnTestFailureDefault = false
+	errorTestTokenIsRequired  = "auth token is required"
+	errorTestAppIDIsRequired  = "app ID is required"
+)
+
+func TestLoadConfigWithValidEnvironment(t *testing.T) {
 	// Set up environment variables
-	_ = os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
-	_ = os.Setenv("TESTRIGOR_APP_ID", "test-app")
-	_ = os.Setenv("TESTRIGOR_API_URL", "https://custom.api.testrigor.com/api/v1")
-	_ = os.Setenv("TR_CI_ERROR_ON_TEST_FAILURE", "true")
+	_ = os.Setenv(authTokenEnvVar, authTokenDefault)
+	_ = os.Setenv(appIDEnvVar, appIDDefault)
+	_ = os.Setenv(apiURLEnvVar, apiURLDefault)
+	_ = os.Setenv(errorOnTestFailureEnvVar, "true")
 
 	defer func() {
-		_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
-		_ = os.Unsetenv("TESTRIGOR_APP_ID")
-		_ = os.Unsetenv("TESTRIGOR_API_URL")
-		_ = os.Unsetenv("TR_CI_ERROR_ON_TEST_FAILURE")
+		_ = os.Unsetenv(authTokenEnvVar)
+		_ = os.Unsetenv(appIDEnvVar)
+		_ = os.Unsetenv(apiURLEnvVar)
+		_ = os.Unsetenv(errorOnTestFailureEnvVar)
 	}()
 
 	config, err := LoadConfig()
 	assert.NoError(t, err)
 	assert.NotNil(t, config)
 
-	assert.Equal(t, "test-token", config.TestRigor.AuthToken)
-	assert.Equal(t, "test-app", config.TestRigor.AppID)
-	assert.Equal(t, "https://custom.api.testrigor.com/api/v1", config.TestRigor.APIURL)
+	assert.Equal(t, authTokenDefault, config.TestRigor.AuthToken)
+	assert.Equal(t, appIDDefault, config.TestRigor.AppID)
+	assert.Equal(t, apiURLDefault, config.TestRigor.APIURL)
 	assert.True(t, config.TestRigor.ErrorOnTestFailure)
 }
 
-func TestLoadConfig_WithDefaults(t *testing.T) {
+func TestLoadConfigWithDefaults(t *testing.T) {
 	// Set only required environment variables
-	_ = os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
-	_ = os.Setenv("TESTRIGOR_APP_ID", "test-app")
+	_ = os.Setenv(authTokenEnvVar, authTokenDefault)
+	_ = os.Setenv(appIDEnvVar, appIDDefault)
 
 	defer func() {
-		_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
-		_ = os.Unsetenv("TESTRIGOR_APP_ID")
+		_ = os.Unsetenv(authTokenEnvVar)
+		_ = os.Unsetenv(appIDEnvVar)
 	}()
 
 	config, err := LoadConfig()
 	assert.NoError(t, err)
 	assert.NotNil(t, config)
 
-	assert.Equal(t, "test-token", config.TestRigor.AuthToken)
-	assert.Equal(t, "test-app", config.TestRigor.AppID)
-	assert.Equal(t, "https://api.testrigor.com/api/v1", config.TestRigor.APIURL) // Default value
-	assert.False(t, config.TestRigor.ErrorOnTestFailure)                         // Default value
+	assert.Equal(t, authTokenDefault, config.TestRigor.AuthToken)
+	assert.Equal(t, appIDDefault, config.TestRigor.AppID)
+	assert.Equal(t, apiURLDefault, config.TestRigor.APIURL) // Default value
+	assert.False(t, config.TestRigor.ErrorOnTestFailure)    // Default value
 }
 
-func TestLoadConfig_MissingAuthToken(t *testing.T) {
+func TestLoadConfigMissingAuthToken(t *testing.T) {
 	// Set only AppID
-	_ = os.Setenv("TESTRIGOR_APP_ID", "test-app")
+	_ = os.Setenv(appIDEnvVar, appIDDefault)
 
 	defer func() {
-		_ = os.Unsetenv("TESTRIGOR_APP_ID")
+		_ = os.Unsetenv(appIDEnvVar)
 	}()
 
 	config, err := LoadConfig()
 	assert.Error(t, err)
 	assert.Nil(t, config)
-	assert.Contains(t, err.Error(), "auth token is required")
+	assert.Contains(t, err.Error(), errorTestTokenIsRequired)
 }
 
-func TestLoadConfig_MissingAppID(t *testing.T) {
+func TestLoadConfigMissingAppID(t *testing.T) {
 	// Set only AuthToken
-	_ = os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
+	_ = os.Setenv(authTokenEnvVar, authTokenDefault)
 
 	defer func() {
-		_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
+		_ = os.Unsetenv(authTokenEnvVar)
 	}()
 
 	config, err := LoadConfig()
 	assert.Error(t, err)
 	assert.Nil(t, config)
-	assert.Contains(t, err.Error(), "app ID is required")
+	assert.Contains(t, err.Error(), errorTestAppIDIsRequired)
 }
 
-func TestLoadConfig_MissingBoth(t *testing.T) {
+func TestLoadConfigMissingBoth(t *testing.T) {
 	// Clear all environment variables
-	_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
-	_ = os.Unsetenv("TESTRIGOR_APP_ID")
+	_ = os.Unsetenv(authTokenEnvVar)
+	_ = os.Unsetenv(appIDEnvVar)
 
 	config, err := LoadConfig()
 	assert.Error(t, err)
 	assert.Nil(t, config)
-	assert.Contains(t, err.Error(), "auth token is required")
+	assert.Contains(t, err.Error(), errorTestTokenIsRequired)
 }
 
-func TestConfig_Validate(t *testing.T) {
+func TestConfigValidate(t *testing.T) {
 	tests := []struct {
 		name        string
 		config      *Config
@@ -101,8 +114,8 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid config",
 			config: &Config{
 				TestRigor: TestRigorConfig{
-					AuthToken: "test-token",
-					AppID:     "test-app",
+					AuthToken: authTokenDefault,
+					AppID:     appIDDefault,
 				},
 			},
 			expectError: false,
@@ -112,22 +125,22 @@ func TestConfig_Validate(t *testing.T) {
 			config: &Config{
 				TestRigor: TestRigorConfig{
 					AuthToken: "",
-					AppID:     "test-app",
+					AppID:     appIDDefault,
 				},
 			},
 			expectError: true,
-			errorMsg:    "auth token is required",
+			errorMsg:    errorTestTokenIsRequired,
 		},
 		{
 			name: "missing app ID",
 			config: &Config{
 				TestRigor: TestRigorConfig{
-					AuthToken: "test-token",
+					AuthToken: authTokenDefault,
 					AppID:     "",
 				},
 			},
 			expectError: true,
-			errorMsg:    "app ID is required",
+			errorMsg:    errorTestAppIDIsRequired,
 		},
 		{
 			name: "missing both",
@@ -138,7 +151,7 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "auth token is required",
+			errorMsg:    errorTestTokenIsRequired,
 		},
 	}
 
@@ -155,7 +168,7 @@ func TestConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestConfig_IsValid(t *testing.T) {
+func TestConfigIsValid(t *testing.T) {
 	tests := []struct {
 		name     string
 		config   *Config
@@ -165,8 +178,8 @@ func TestConfig_IsValid(t *testing.T) {
 			name: "valid config",
 			config: &Config{
 				TestRigor: TestRigorConfig{
-					AuthToken: "test-token",
-					AppID:     "test-app",
+					AuthToken: authTokenDefault,
+					AppID:     appIDDefault,
 				},
 			},
 			expected: true,
@@ -176,7 +189,7 @@ func TestConfig_IsValid(t *testing.T) {
 			config: &Config{
 				TestRigor: TestRigorConfig{
 					AuthToken: "",
-					AppID:     "test-app",
+					AppID:     appIDDefault,
 				},
 			},
 			expected: false,
@@ -185,7 +198,7 @@ func TestConfig_IsValid(t *testing.T) {
 			name: "missing app ID",
 			config: &Config{
 				TestRigor: TestRigorConfig{
-					AuthToken: "test-token",
+					AuthToken: authTokenDefault,
 					AppID:     "",
 				},
 			},
@@ -217,33 +230,33 @@ func TestGetConfigPath(t *testing.T) {
 	assert.Contains(t, path, ".testrigor.yaml")
 }
 
-func TestTestRigorConfig_Fields(t *testing.T) {
+func TestTestRigorConfigFields(t *testing.T) {
 	config := TestRigorConfig{
-		AuthToken:          "test-token",
-		AppID:              "test-app",
-		APIURL:             "https://api.testrigor.com/api/v1",
+		AuthToken:          authTokenDefault,
+		AppID:              appIDDefault,
+		APIURL:             apiURLDefault,
 		ErrorOnTestFailure: true,
 	}
 
-	assert.Equal(t, "test-token", config.AuthToken)
-	assert.Equal(t, "test-app", config.AppID)
-	assert.Equal(t, "https://api.testrigor.com/api/v1", config.APIURL)
+	assert.Equal(t, authTokenDefault, config.AuthToken)
+	assert.Equal(t, appIDDefault, config.AppID)
+	assert.Equal(t, apiURLDefault, config.APIURL)
 	assert.True(t, config.ErrorOnTestFailure)
 }
 
-func TestConfig_Fields(t *testing.T) {
+func TestConfigFields(t *testing.T) {
 	config := &Config{
 		TestRigor: TestRigorConfig{
-			AuthToken:          "test-token",
-			AppID:              "test-app",
-			APIURL:             "https://api.testrigor.com/api/v1",
+			AuthToken:          authTokenDefault,
+			AppID:              appIDDefault,
+			APIURL:             apiURLDefault,
 			ErrorOnTestFailure: false,
 		},
 	}
 
 	assert.NotNil(t, config.TestRigor)
-	assert.Equal(t, "test-token", config.TestRigor.AuthToken)
-	assert.Equal(t, "test-app", config.TestRigor.AppID)
-	assert.Equal(t, "https://api.testrigor.com/api/v1", config.TestRigor.APIURL)
+	assert.Equal(t, authTokenDefault, config.TestRigor.AuthToken)
+	assert.Equal(t, appIDDefault, config.TestRigor.AppID)
+	assert.Equal(t, apiURLDefault, config.TestRigor.APIURL)
 	assert.False(t, config.TestRigor.ErrorOnTestFailure)
 }
