@@ -156,3 +156,26 @@ watch: ## Watch for changes and run tests
 	@echo "Watching for changes..."
 	@which fswatch > /dev/null || (echo "fswatch not found. Install with: brew install fswatch" && exit 1)
 	fswatch -o . | xargs -n1 -I{} make test-short 
+
+.PHONY: validate
+validate: ## Run lint, format, security checks, and ensure test coverage > 70% for PR validation
+	@echo "Validating code for PR workflow..."
+	golangci-lint run
+	gofmt -l -s . | tee /dev/stderr | (! grep .)
+	gosec ./...
+	@echo "Running tests and checking coverage..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic ./...
+	@totalcov=$$(go tool cover -func=$(COVERAGE_DIR)/coverage.out | grep total: | sed 's/.* \\([0-9.]*\\)%/\\1/'); \
+	if [ -z "$$totalcov" ]; then \
+	  echo "Could not determine total coverage!"; \
+	  exit 1; \
+	fi; \
+	lowcov=$$(echo "$$totalcov < 70.0" | bc); \
+	if [ "$$lowcov" -eq 1 ]; then \
+	  echo "Test coverage is too low: $$totalcov% (minimum is 70%)"; \
+	  exit 1; \
+	else \
+	  echo "Test coverage is sufficient: $$totalcov%"; \
+	fi
+	@echo "Validation complete!" 

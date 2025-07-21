@@ -32,16 +32,16 @@ type MockTestRigorClient struct {
 	mock.Mock
 }
 
-func (m *MockTestRigorClient) StartTestRun(ctx context.Context, opts types.TestRunOptions) (*types.TestRunResult, error) {
-	args := m.Called(ctx, opts)
+func (m *MockTestRigorClient) StartTestRun(ctx context.Context, opts types.TestRunOptions, debugMode bool) (*types.TestRunResult, error) {
+	args := m.Called(ctx, opts, debugMode)
 	if result := args.Get(0); result != nil {
 		return result.(*types.TestRunResult), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockTestRigorClient) GetTestStatus(ctx context.Context, branchName string, labels []string) (*types.TestStatus, error) {
-	args := m.Called(ctx, branchName, labels)
+func (m *MockTestRigorClient) GetTestStatus(ctx context.Context, branchName string, labels []string, debugMode bool) (*types.TestStatus, error) {
+	args := m.Called(ctx, branchName, labels, debugMode)
 	if status := args.Get(0); status != nil {
 		return status.(*types.TestStatus), args.Error(1)
 	}
@@ -76,7 +76,7 @@ func TestNewTestRunner(t *testing.T) {
 	assert.NotNil(t, runner.apiClient)
 }
 
-func TestNewTestRunner_WithNilLogger(t *testing.T) {
+func TestNewTestRunnerWithNilLogger(t *testing.T) {
 	cfg := &config.Config{}
 	httpClient := client.NewDefaultHTTPClient()
 
@@ -87,7 +87,7 @@ func TestNewTestRunner_WithNilLogger(t *testing.T) {
 	assert.IsType(t, DefaultLogger{}, runner.logger)
 }
 
-func TestTestRunner_ExecuteTestRun_Success(t *testing.T) {
+func TestTestRunnerExecuteTestRunSuccess(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -127,8 +127,8 @@ func TestTestRunner_ExecuteTestRun_Success(t *testing.T) {
 	}
 
 	// Set up mock expectations
-	mockClient.On("StartTestRun", mock.Anything, runConfig.Options).Return(startResult, nil)
-	mockClient.On("GetTestStatus", mock.Anything, "test-branch", []string{"smoke"}).Return(finalStatus, nil)
+	mockClient.On("StartTestRun", mock.Anything, runConfig.Options, runConfig.DebugMode).Return(startResult, nil)
+	mockClient.On("GetTestStatus", mock.Anything, "test-branch", []string{"smoke"}, runConfig.DebugMode).Return(finalStatus, nil)
 
 	// Execute
 	ctx := context.Background()
@@ -146,7 +146,7 @@ func TestTestRunner_ExecuteTestRun_Success(t *testing.T) {
 	assert.NotEmpty(t, logger.logs)
 }
 
-func TestTestRunner_ExecuteTestRun_StartError(t *testing.T) {
+func TestTestRunnerExecuteTestRunStartError(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -167,7 +167,7 @@ func TestTestRunner_ExecuteTestRun_StartError(t *testing.T) {
 	}
 
 	expectedError := errors.New("failed to start test")
-	mockClient.On("StartTestRun", mock.Anything, runConfig.Options).Return(nil, expectedError)
+	mockClient.On("StartTestRun", mock.Anything, runConfig.Options, runConfig.DebugMode).Return(nil, expectedError)
 
 	// Execute
 	ctx := context.Background()
@@ -181,7 +181,7 @@ func TestTestRunner_ExecuteTestRun_StartError(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestTestRunner_ExecuteTestRun_WithReport(t *testing.T) {
+func TestTestRunnerExecuteTestRunWithReport(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -221,8 +221,8 @@ func TestTestRunner_ExecuteTestRun_WithReport(t *testing.T) {
 	reportData := []byte(`<?xml version="1.0"?><testsuite></testsuite>`)
 
 	// Set up mock expectations
-	mockClient.On("StartTestRun", mock.Anything, runConfig.Options).Return(startResult, nil)
-	mockClient.On("GetTestStatus", mock.Anything, "test-branch", mock.Anything).Return(finalStatus, nil)
+	mockClient.On("StartTestRun", mock.Anything, runConfig.Options, runConfig.DebugMode).Return(startResult, nil)
+	mockClient.On("GetTestStatus", mock.Anything, "test-branch", mock.Anything, runConfig.DebugMode).Return(finalStatus, nil)
 	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(reportData, nil)
 
 	// Execute
@@ -237,7 +237,7 @@ func TestTestRunner_ExecuteTestRun_WithReport(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestTestRunner_monitorTestExecution_Success(t *testing.T) {
+func TestTestRunnerMonitorTestExecutionSuccess(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -266,7 +266,7 @@ func TestTestRunner_monitorTestExecution_Success(t *testing.T) {
 		},
 	}
 
-	mockClient.On("GetTestStatus", mock.Anything, "test-branch", []string{"smoke"}).Return(completedStatus, nil)
+	mockClient.On("GetTestStatus", mock.Anything, "test-branch", []string{"smoke"}, runConfig.DebugMode).Return(completedStatus, nil)
 
 	// Execute
 	ctx := context.Background()
@@ -278,7 +278,7 @@ func TestTestRunner_monitorTestExecution_Success(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestTestRunner_monitorTestExecution_Timeout(t *testing.T) {
+func TestTestRunnerMonitorTestExecutionTimeout(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -305,7 +305,7 @@ func TestTestRunner_monitorTestExecution_Timeout(t *testing.T) {
 		},
 	}
 
-	mockClient.On("GetTestStatus", mock.Anything, "test-branch", mock.Anything).Return(inProgressStatus, nil).Maybe()
+	mockClient.On("GetTestStatus", mock.Anything, "test-branch", mock.Anything, runConfig.DebugMode).Return(inProgressStatus, nil).Maybe()
 
 	// Execute
 	ctx := context.Background()
@@ -317,7 +317,7 @@ func TestTestRunner_monitorTestExecution_Timeout(t *testing.T) {
 	assert.Contains(t, err.Error(), "timeout waiting for test completion")
 }
 
-func TestTestRunner_monitorTestExecution_Crash(t *testing.T) {
+func TestTestRunnerMonitorTestExecutionCrash(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -344,7 +344,7 @@ func TestTestRunner_monitorTestExecution_Crash(t *testing.T) {
 		},
 	}
 
-	mockClient.On("GetTestStatus", mock.Anything, "test-branch", mock.Anything).Return(crashedStatus, nil)
+	mockClient.On("GetTestStatus", mock.Anything, "test-branch", mock.Anything, runConfig.DebugMode).Return(crashedStatus, nil)
 
 	// Execute
 	ctx := context.Background()
@@ -357,7 +357,7 @@ func TestTestRunner_monitorTestExecution_Crash(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestTestRunner_downloadReport_Success(t *testing.T) {
+func TestTestRunnerDownloadReportSuccess(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -382,7 +382,7 @@ func TestTestRunner_downloadReport_Success(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestTestRunner_downloadReport_RetryLogic(t *testing.T) {
+func TestTestRunnerDownloadReportRetryLogic(t *testing.T) {
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -409,7 +409,7 @@ func TestTestRunner_downloadReport_RetryLogic(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestTestRunner_isTestRunSuccessful(t *testing.T) {
+func TestTestRunnerIsTestRunSuccessful(t *testing.T) {
 	runner := &TestRunner{}
 
 	tests := []struct {
@@ -483,7 +483,7 @@ func TestTestRunner_isTestRunSuccessful(t *testing.T) {
 	}
 }
 
-func TestTestRunner_logRunParameters(t *testing.T) {
+func TestTestRunnerLogRunParameters(t *testing.T) {
 	logger := &MockLogger{}
 	runner := &TestRunner{logger: logger}
 
@@ -507,7 +507,7 @@ func TestTestRunner_logRunParameters(t *testing.T) {
 	assert.True(t, len(logger.logs) > 5, "Expected multiple log entries")
 }
 
-func TestTestRunner_printStatusUpdate(t *testing.T) {
+func TestTestRunnerPrintStatusUpdate(t *testing.T) {
 	logger := &MockLogger{}
 	runner := &TestRunner{logger: logger}
 
@@ -538,7 +538,7 @@ func TestTestRunner_printStatusUpdate(t *testing.T) {
 	assert.True(t, foundStatusLog)
 }
 
-func TestTestRunner_printFinalResults(t *testing.T) {
+func TestTestRunnerPrintFinalResults(t *testing.T) {
 	logger := &MockLogger{}
 	runner := &TestRunner{logger: logger}
 

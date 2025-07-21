@@ -16,8 +16,8 @@ import (
 
 // TestRigorClient interface defines the operations needed for test execution.
 type TestRigorClient interface {
-	StartTestRun(ctx context.Context, opts types.TestRunOptions) (*types.TestRunResult, error)
-	GetTestStatus(ctx context.Context, branchName string, labels []string) (*types.TestStatus, error)
+	StartTestRun(ctx context.Context, opts types.TestRunOptions, debugMode bool) (*types.TestRunResult, error)
+	GetTestStatus(ctx context.Context, branchName string, labels []string, debugMode bool) (*types.TestStatus, error)
 	GetJUnitReport(ctx context.Context, taskID string) ([]byte, error)
 }
 
@@ -89,7 +89,7 @@ func (tr *TestRunner) ExecuteTestRun(ctx context.Context, runConfig TestRunConfi
 
 	// Step 1: Start the test run
 	tr.logger.Println("Starting test run...")
-	result, err := tr.apiClient.StartTestRun(ctx, runConfig.Options)
+	result, err := tr.apiClient.StartTestRun(ctx, runConfig.Options, runConfig.DebugMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start test run: %w", err)
 	}
@@ -155,7 +155,7 @@ func (tr *TestRunner) monitorTestExecution(ctx context.Context, branchName strin
 		case <-timeoutTimer.C:
 			return nil, fmt.Errorf("timeout waiting for test completion after %v", runConfig.Timeout)
 		case <-pollTicker.C:
-			status, err := tr.apiClient.GetTestStatus(ctx, branchName, runConfig.Options.Labels)
+			status, err := tr.apiClient.GetTestStatus(ctx, branchName, runConfig.Options.Labels, runConfig.DebugMode)
 			if err != nil {
 				consecutiveErrors++
 				if consecutiveErrors >= maxConsecutiveErrors {
@@ -172,11 +172,13 @@ func (tr *TestRunner) monitorTestExecution(ctx context.Context, branchName strin
 
 			// Check for crashes first (before checking completion)
 			if status.HasCrashes() {
+				tr.printFinalResults(status, 0)
 				return status, fmt.Errorf("test crashed: %d test(s) crashed", status.Results.Crash)
 			}
 
-			// Check for completion
+			// Check for completion (including cancelled)
 			if status.IsComplete() {
+				tr.printFinalResults(status, 0)
 				return status, nil
 			}
 

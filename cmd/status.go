@@ -29,6 +29,7 @@ This command allows you to check the status without starting a new test run.`,
 			// Extract flags
 			branchName, _ := cmd.Flags().GetString("branch")
 			labelsStr, _ := cmd.Flags().GetString("labels")
+			debugMode, _ := cmd.Flags().GetBool("debug")
 
 			// Validate required parameters
 			if branchName == "" {
@@ -50,7 +51,7 @@ This command allows you to check the status without starting a new test run.`,
 			apiClient := client.NewTestRigorClient(cfg, httpClient)
 
 			// Get test status
-			status, err := apiClient.GetTestStatus(ctx, branchName, labels)
+			status, err := apiClient.GetTestStatus(ctx, branchName, labels, debugMode)
 			if err != nil {
 				return fmt.Errorf("failed to get test status: %w", err)
 			}

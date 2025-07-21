@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"strconv"
+
 	"github.com/benvon/testrigor-ci-tool/internal/api/types"
 	"github.com/benvon/testrigor-ci-tool/internal/config"
 )
@@ -28,7 +30,7 @@ func NewTestRigorClient(cfg *config.Config, httpClient HTTPClient) *TestRigorCli
 }
 
 // StartTestRun starts a new test run. This is a primitive API operation.
-func (c *TestRigorClient) StartTestRun(ctx context.Context, opts types.TestRunOptions) (*types.TestRunResult, error) {
+func (c *TestRigorClient) StartTestRun(ctx context.Context, opts types.TestRunOptions, debugMode bool) (*types.TestRunResult, error) {
 	body := c.buildStartTestRunBody(opts)
 	branchName := c.extractBranchName(opts, body)
 
@@ -69,7 +71,7 @@ func (c *TestRigorClient) StartTestRun(ctx context.Context, opts types.TestRunOp
 }
 
 // GetTestStatus retrieves the current test status. This is a primitive API operation.
-func (c *TestRigorClient) GetTestStatus(ctx context.Context, branchName string, labels []string) (*types.TestStatus, error) {
+func (c *TestRigorClient) GetTestStatus(ctx context.Context, branchName string, labels []string, debugMode bool) (*types.TestStatus, error) {
 	requestURL := c.buildStatusURL(branchName, labels)
 
 	headers := map[string]string{
@@ -87,7 +89,7 @@ func (c *TestRigorClient) GetTestStatus(ctx context.Context, branchName string, 
 		return nil, fmt.Errorf("failed to get test status: %w", err)
 	}
 
-	return c.parseTestStatus(resp.StatusCode, resp.Body)
+	return c.parseTestStatus(resp.StatusCode, resp.Body, debugMode)
 }
 
 // CancelTestRun cancels a running test. This is a primitive API operation.
@@ -246,39 +248,33 @@ func (c *TestRigorClient) buildStatusURL(branchName string, labels []string) str
 }
 
 // parseTestStatus parses the test status response.
-func (c *TestRigorClient) parseTestStatus(statusCode int, body []byte) (*types.TestStatus, error) {
-	// Handle special status codes
-	switch statusCode {
-	case types.StatusTestInProgress227, types.StatusTestInProgress228:
-		// These indicate test in progress
-		status := &types.TestStatus{
-			Status:         types.StatusInProgress,
-			HTTPStatusCode: statusCode,
-		}
-		c.parseStatusBody(body, status)
-		return status, nil
-	case types.StatusTestFailed:
-		status := &types.TestStatus{
-			Status:         types.StatusFailed,
-			HTTPStatusCode: statusCode,
-		}
-		c.parseStatusBody(body, status)
-		return status, nil
-	case types.StatusNotFound:
-		return nil, fmt.Errorf("test not found or not ready")
-	}
+func (c *TestRigorClient) parseTestStatus(statusCode int, body []byte, debugMode bool) (*types.TestStatus, error) {
+	status := &types.TestStatus{HTTPStatusCode: statusCode}
 
-	if statusCode < 200 || statusCode > 299 {
+	switch statusCode {
+	case 200:
+		status.Status = "completed"
+	case 227:
+		status.Status = "new"
+	case 228:
+		status.Status = "in_progress"
+	case 230:
+		status.Status = "failed"
+	case 404:
+		status.Status = "not_found"
+		return nil, fmt.Errorf("test not found or not ready")
+	case 400, 401, 403, 500, 502, 503, 504:
+		status.Status = "error"
 		return nil, c.parseAPIError(statusCode, body)
 	}
 
-	status := &types.TestStatus{HTTPStatusCode: statusCode}
-	c.parseStatusBody(body, status)
+	// For 200, 227, 228, 230, parse the body for extended details
+	c.parseStatusBody(body, status, debugMode)
 	return status, nil
 }
 
 // parseStatusBody parses the JSON body into a TestStatus struct.
-func (c *TestRigorClient) parseStatusBody(body []byte, status *types.TestStatus) {
+func (c *TestRigorClient) parseStatusBody(body []byte, status *types.TestStatus, debugMode bool) {
 	var data map[string]interface{}
 	if json.Unmarshal(body, &data) != nil {
 		return
@@ -298,15 +294,28 @@ func (c *TestRigorClient) parseStatusBody(body []byte, status *types.TestStatus)
 
 	// Parse results
 	if results, ok := data["overallResults"].(map[string]interface{}); ok {
+		// Debug: print the raw results map if any field is zero and status is not new
+		if debugMode && status.Status != "new" {
+			zeroFields := []string{}
+			fields := []string{"Total", "total", "In queue", "inQueue", "queued", "In progress", "inProgress", "running", "Passed", "passed", "Failed", "failed", "Not started", "notStarted", "Canceled", "canceled", "cancelled", "Crash", "crash"}
+			for _, f := range fields {
+				if c.getInt(results, f) == 0 {
+					zeroFields = append(zeroFields, f)
+				}
+			}
+			if len(zeroFields) > 0 {
+				fmt.Printf("[testrigor-ci-tool debug] API overallResults: %+v\n", results)
+			}
+		}
 		status.Results = types.TestResults{
-			Total:      c.getInt(results, "total"),
-			InQueue:    c.getInt(results, "inQueue"),
-			InProgress: c.getInt(results, "inProgress"),
-			Passed:     c.getInt(results, "passed"),
-			Failed:     c.getInt(results, "failed"),
-			NotStarted: c.getInt(results, "notStarted"),
-			Canceled:   c.getInt(results, "canceled"),
-			Crash:      c.getInt(results, "crash"),
+			Total:      c.getInt(results, "Total") + c.getInt(results, "total"),
+			InQueue:    c.getInt(results, "In queue") + c.getInt(results, "inQueue") + c.getInt(results, "queued"),
+			InProgress: c.getInt(results, "In progress") + c.getInt(results, "inProgress") + c.getInt(results, "running"),
+			Passed:     c.getInt(results, "Passed") + c.getInt(results, "passed"),
+			Failed:     c.getInt(results, "Failed") + c.getInt(results, "failed"),
+			NotStarted: c.getInt(results, "Not started") + c.getInt(results, "notStarted"),
+			Canceled:   c.getInt(results, "Canceled") + c.getInt(results, "canceled") + c.getInt(results, "cancelled"),
+			Crash:      c.getInt(results, "Crash") + c.getInt(results, "crash"),
 		}
 	}
 
@@ -347,11 +356,16 @@ func (c *TestRigorClient) getString(m map[string]interface{}, key string) string
 }
 
 func (c *TestRigorClient) getInt(m map[string]interface{}, key string) int {
-	if val, ok := m[key].(float64); ok {
-		return int(val)
-	}
-	if val, ok := m[key].(int); ok {
-		return val
+	if val, ok := m[key]; ok {
+		switch v := val.(type) {
+		case float64:
+			return int(v)
+		case int:
+			return v
+		case string:
+			i, _ := strconv.Atoi(v)
+			return i
+		}
 	}
 	return 0
 }

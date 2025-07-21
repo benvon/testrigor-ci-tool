@@ -1,5 +1,9 @@
 package types
 
+import (
+	"strings"
+)
+
 // TestRigor status codes and states
 const (
 	// HTTP Status Codes
@@ -113,14 +117,11 @@ type TestStatus struct {
 
 // IsComplete returns true if the test status indicates completion
 func (ts *TestStatus) IsComplete() bool {
-	completeStates := map[string]bool{
-		StatusCompleted: true,
-		StatusFailed:    true,
-		StatusError:     true,
-		StatusCancelled: true,
-		StatusCanceled:  true,
+	switch strings.ToLower(ts.Status) {
+	case "completed", "failed", "error", "cancelled", "canceled":
+		return true
 	}
-	return completeStates[ts.Status]
+	return false
 }
 
 // IsInProgress returns true if the test is currently running
