@@ -1,14 +1,15 @@
+// Package client provides HTTP client primitives for making API requests.
+// This package contains only simple, single-purpose functions for HTTP operations.
 package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/benvon/testrigor-ci-tool/internal/config"
 )
 
 // HTTPClient defines the interface for making HTTP requests.
@@ -36,81 +37,89 @@ func (c *DefaultHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return c.client.Do(req)
 }
 
-// RequestOptions represents the options for making an HTTP request.
-type RequestOptions struct {
-	// Method is the HTTP method (GET, POST, etc.)
-	Method string
-	// URL is the target URL for the request
-	URL string
-	// Body is the request body (will be JSON marshaled)
-	Body interface{}
-	// ContentType is the Content-Type header value
+// Request represents an HTTP request with all necessary parameters.
+type Request struct {
+	Method      string
+	URL         string
+	Body        interface{}
+	Headers     map[string]string
 	ContentType string
-	// DebugMode enables debug output
-	DebugMode bool
 }
 
-// MakeRequest makes an HTTP request with the given options and returns the response body.
-// It handles JSON marshaling, authentication, and basic error handling.
-func MakeRequest(client HTTPClient, cfg *config.Config, opts RequestOptions) ([]byte, error) {
+// Response represents an HTTP response with body and metadata.
+type Response struct {
+	StatusCode int
+	Body       []byte
+	Headers    http.Header
+}
+
+// Client is a primitive HTTP client that handles only HTTP operations.
+type Client struct {
+	httpClient HTTPClient
+}
+
+// New creates a new HTTP client with the provided HTTPClient implementation.
+func New(httpClient HTTPClient) *Client {
+	if httpClient == nil {
+		httpClient = NewDefaultHTTPClient()
+	}
+	return &Client{httpClient: httpClient}
+}
+
+// Execute performs an HTTP request and returns the response.
+// This is a primitive function that only handles HTTP mechanics.
+func (c *Client) Execute(ctx context.Context, req Request) (*Response, error) {
+	httpReq, err := c.buildHTTPRequest(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build HTTP request: %w", err)
+	}
+
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute HTTP request: %w", err)
+	}
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return &Response{
+		StatusCode: httpResp.StatusCode,
+		Body:       body,
+		Headers:    httpResp.Header,
+	}, nil
+}
+
+// buildHTTPRequest constructs an HTTP request from the Request struct.
+func (c *Client) buildHTTPRequest(ctx context.Context, req Request) (*http.Request, error) {
 	var bodyReader io.Reader
-	if opts.Body != nil {
-		bodyBytes, err := json.Marshal(opts.Body)
+
+	if req.Body != nil {
+		bodyBytes, err := json.Marshal(req.Body)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling request body: %v", err)
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
-	req, err := http.NewRequest(opts.Method, opts.URL, bodyReader)
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	// Set standard headers
-	req.Header.Set("Content-Type", opts.ContentType)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("auth-token", cfg.TestRigor.AuthToken)
-
-	// Debug output
-	if opts.DebugMode {
-		fmt.Printf("Making %s request to %s\n", opts.Method, opts.URL)
-		if opts.Body != nil {
-			bodyBytes, _ := json.MarshalIndent(opts.Body, "", "  ")
-			fmt.Printf("Request body: %s\n", string(bodyBytes))
-		}
+	// Set content type
+	if req.ContentType != "" {
+		httpReq.Header.Set("Content-Type", req.ContentType)
 	}
 
-	// Make the request
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error making request: %v", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			// Log the error but don't fail the request
-			if opts.DebugMode {
-				fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
-			}
-		}
-	}()
-
-	// Read response body
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %v", err)
+	// Set custom headers
+	for key, value := range req.Headers {
+		httpReq.Header.Set(key, value)
 	}
 
-	// Check for HTTP errors
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	// Debug output
-	if opts.DebugMode {
-		fmt.Printf("Response status: %d\n", resp.StatusCode)
-		fmt.Printf("Response body: %s\n", string(bodyBytes))
-	}
-
-	return bodyBytes, nil
+	return httpReq, nil
 }

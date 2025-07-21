@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -68,5 +69,5 @@ func (l *Logger) Printf(format string, args ...interface{}) {
 
 // Println provides backward compatibility for existing code
 func (l *Logger) Println(args ...interface{}) {
-	l.Info("%s", fmt.Sprint(args...))
+	l.Info("%s", strings.TrimRight(fmt.Sprintln(args...), "\n"))
 }
