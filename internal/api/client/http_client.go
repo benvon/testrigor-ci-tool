@@ -86,7 +86,14 @@ func MakeRequest(client HTTPClient, cfg *config.Config, opts RequestOptions) ([]
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			// Log the error but don't fail the request
+			if opts.DebugMode {
+				fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+			}
+		}
+	}()
 
 	// Read response body
 	bodyBytes, err := io.ReadAll(resp.Body)

@@ -9,16 +9,16 @@ import (
 
 func TestLoadConfig_WithValidEnvironment(t *testing.T) {
 	// Set up environment variables
-	os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
-	os.Setenv("TESTRIGOR_APP_ID", "test-app")
-	os.Setenv("TESTRIGOR_API_URL", "https://custom.api.testrigor.com/api/v1")
-	os.Setenv("TR_CI_ERROR_ON_TEST_FAILURE", "true")
+	_ = os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
+	_ = os.Setenv("TESTRIGOR_APP_ID", "test-app")
+	_ = os.Setenv("TESTRIGOR_API_URL", "https://custom.api.testrigor.com/api/v1")
+	_ = os.Setenv("TR_CI_ERROR_ON_TEST_FAILURE", "true")
 
 	defer func() {
-		os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
-		os.Unsetenv("TESTRIGOR_APP_ID")
-		os.Unsetenv("TESTRIGOR_API_URL")
-		os.Unsetenv("TR_CI_ERROR_ON_TEST_FAILURE")
+		_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
+		_ = os.Unsetenv("TESTRIGOR_APP_ID")
+		_ = os.Unsetenv("TESTRIGOR_API_URL")
+		_ = os.Unsetenv("TR_CI_ERROR_ON_TEST_FAILURE")
 	}()
 
 	config, err := LoadConfig()
@@ -33,12 +33,12 @@ func TestLoadConfig_WithValidEnvironment(t *testing.T) {
 
 func TestLoadConfig_WithDefaults(t *testing.T) {
 	// Set only required environment variables
-	os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
-	os.Setenv("TESTRIGOR_APP_ID", "test-app")
+	_ = os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
+	_ = os.Setenv("TESTRIGOR_APP_ID", "test-app")
 
 	defer func() {
-		os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
-		os.Unsetenv("TESTRIGOR_APP_ID")
+		_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
+		_ = os.Unsetenv("TESTRIGOR_APP_ID")
 	}()
 
 	config, err := LoadConfig()
@@ -53,10 +53,10 @@ func TestLoadConfig_WithDefaults(t *testing.T) {
 
 func TestLoadConfig_MissingAuthToken(t *testing.T) {
 	// Set only AppID
-	os.Setenv("TESTRIGOR_APP_ID", "test-app")
+	_ = os.Setenv("TESTRIGOR_APP_ID", "test-app")
 
 	defer func() {
-		os.Unsetenv("TESTRIGOR_APP_ID")
+		_ = os.Unsetenv("TESTRIGOR_APP_ID")
 	}()
 
 	config, err := LoadConfig()
@@ -67,10 +67,10 @@ func TestLoadConfig_MissingAuthToken(t *testing.T) {
 
 func TestLoadConfig_MissingAppID(t *testing.T) {
 	// Set only AuthToken
-	os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
+	_ = os.Setenv("TESTRIGOR_AUTH_TOKEN", "test-token")
 
 	defer func() {
-		os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
+		_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
 	}()
 
 	config, err := LoadConfig()
@@ -81,8 +81,8 @@ func TestLoadConfig_MissingAppID(t *testing.T) {
 
 func TestLoadConfig_MissingBoth(t *testing.T) {
 	// Clear all environment variables
-	os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
-	os.Unsetenv("TESTRIGOR_APP_ID")
+	_ = os.Unsetenv("TESTRIGOR_AUTH_TOKEN")
+	_ = os.Unsetenv("TESTRIGOR_APP_ID")
 
 	config, err := LoadConfig()
 	assert.Error(t, err)
