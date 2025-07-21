@@ -11,6 +11,12 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+const (
+	apiURL              = "https://api.example.com/test"
+	httpContentType     = "application/json"
+	httpAuthHeaderValue = "Bearer token"
+)
+
 // MockHTTPClient is a mock implementation of the HTTPClient interface for testing.
 type MockHTTPClient struct {
 	mock.Mock
@@ -77,7 +83,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestClient_Execute(t *testing.T) {
+func TestClientExecute(t *testing.T) {
 	tests := []struct {
 		name           string
 		request        Request
@@ -90,9 +96,9 @@ func TestClient_Execute(t *testing.T) {
 			name: "successful GET request",
 			request: Request{
 				Method: "GET",
-				URL:    "https://api.example.com/test",
+				URL:    apiURL,
 				Headers: map[string]string{
-					"Authorization": "Bearer token",
+					"Authorization": httpAuthHeaderValue,
 				},
 			},
 			mockResponse: &http.Response{
@@ -107,9 +113,9 @@ func TestClient_Execute(t *testing.T) {
 			name: "successful POST request with body",
 			request: Request{
 				Method:      "POST",
-				URL:         "https://api.example.com/test",
+				URL:         apiURL,
 				Body:        map[string]string{"key": "value"},
-				ContentType: "application/json",
+				ContentType: httpContentType,
 			},
 			mockResponse: &http.Response{
 				StatusCode: 201,
@@ -123,7 +129,7 @@ func TestClient_Execute(t *testing.T) {
 			name: "HTTP client error",
 			request: Request{
 				Method: "GET",
-				URL:    "https://api.example.com/test",
+				URL:    apiURL,
 			},
 			mockError:     errors.New("network error"),
 			expectedError: true,
@@ -132,7 +138,7 @@ func TestClient_Execute(t *testing.T) {
 			name: "invalid JSON body",
 			request: Request{
 				Method: "POST",
-				URL:    "https://api.example.com/test",
+				URL:    apiURL,
 				Body:   make(chan int), // Invalid JSON type
 			},
 			expectedError: true,
@@ -171,7 +177,7 @@ func TestClient_Execute(t *testing.T) {
 	}
 }
 
-func TestClient_buildHTTPRequest(t *testing.T) {
+func TestClientBuildHTTPRequest(t *testing.T) {
 	tests := []struct {
 		name           string
 		request        Request
@@ -184,31 +190,31 @@ func TestClient_buildHTTPRequest(t *testing.T) {
 			name: "GET request with headers",
 			request: Request{
 				Method: "GET",
-				URL:    "https://api.example.com/test",
+				URL:    apiURL,
 				Headers: map[string]string{
-					"Authorization": "Bearer token",
-					"Accept":        "application/json",
+					"Authorization": httpAuthHeaderValue,
+					"Accept":        httpContentType,
 				},
 			},
 			expectedMethod: "GET",
-			expectedURL:    "https://api.example.com/test",
+			expectedURL:    apiURL,
 			checkHeaders: map[string]string{
-				"Authorization": "Bearer token",
-				"Accept":        "application/json",
+				"Authorization": httpAuthHeaderValue,
+				"Accept":        httpContentType,
 			},
 		},
 		{
 			name: "POST request with content type",
 			request: Request{
 				Method:      "POST",
-				URL:         "https://api.example.com/test",
-				ContentType: "application/json",
+				URL:         apiURL,
+				ContentType: httpContentType,
 				Body:        map[string]string{"test": "data"},
 			},
 			expectedMethod: "POST",
-			expectedURL:    "https://api.example.com/test",
+			expectedURL:    apiURL,
 			checkHeaders: map[string]string{
-				"Content-Type": "application/json",
+				"Content-Type": httpContentType,
 			},
 		},
 		{
@@ -254,9 +260,9 @@ func TestClient_buildHTTPRequest(t *testing.T) {
 	}
 }
 
-func TestDefaultHTTPClient_Do(t *testing.T) {
+func TestDefaultHTTPClientDo(t *testing.T) {
 	client := NewDefaultHTTPClient()
-	
+
 	// Create a simple GET request
 	req, err := http.NewRequest("GET", "https://httpbin.org/get", nil)
 	assert.NoError(t, err)
@@ -269,13 +275,13 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 		t.Skipf("Skipping integration test due to network error: %v", err)
 		return
 	}
-	
+
 	assert.NotNil(t, resp)
 	assert.Equal(t, 200, resp.StatusCode)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
-func TestRequest_Validation(t *testing.T) {
+func TestRequestValidation(t *testing.T) {
 	tests := []struct {
 		name    string
 		request Request
@@ -285,7 +291,7 @@ func TestRequest_Validation(t *testing.T) {
 			name: "valid GET request",
 			request: Request{
 				Method: "GET",
-				URL:    "https://api.example.com",
+				URL:    apiURL,
 			},
 			valid: true,
 		},
@@ -293,9 +299,9 @@ func TestRequest_Validation(t *testing.T) {
 			name: "valid POST request with body",
 			request: Request{
 				Method:      "POST",
-				URL:         "https://api.example.com",
+				URL:         apiURL,
 				Body:        map[string]string{"key": "value"},
-				ContentType: "application/json",
+				ContentType: httpContentType,
 			},
 			valid: true,
 		},
@@ -303,7 +309,7 @@ func TestRequest_Validation(t *testing.T) {
 			name: "empty method",
 			request: Request{
 				Method: "",
-				URL:    "https://api.example.com",
+				URL:    apiURL,
 			},
 			valid: true, // Go's http.NewRequest allows empty method
 		},

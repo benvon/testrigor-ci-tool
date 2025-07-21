@@ -79,9 +79,7 @@ func (c *Client) Execute(ctx context.Context, req Request) (*Response, error) {
 		return nil, fmt.Errorf("failed to execute HTTP request: %w", err)
 	}
 	defer func() {
-		if closeErr := httpResp.Body.Close(); closeErr != nil {
-			// Intentionally not logging here - this is a primitive
-		}
+		_ = httpResp.Body.Close()
 	}()
 
 	body, err := io.ReadAll(httpResp.Body)
@@ -99,7 +97,7 @@ func (c *Client) Execute(ctx context.Context, req Request) (*Response, error) {
 // buildHTTPRequest constructs an HTTP request from the Request struct.
 func (c *Client) buildHTTPRequest(ctx context.Context, req Request) (*http.Request, error) {
 	var bodyReader io.Reader
-	
+
 	if req.Body != nil {
 		bodyBytes, err := json.Marshal(req.Body)
 		if err != nil {

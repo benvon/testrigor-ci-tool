@@ -72,7 +72,7 @@ func printTestStatus(status *types.TestStatus, branchName string, labels []strin
 	fmt.Println(strings.Repeat("-", 50))
 
 	fmt.Printf("Status: %s\n", status.Status)
-	
+
 	if status.HTTPStatusCode != 0 {
 		fmt.Printf("HTTP Status Code: %d\n", status.HTTPStatusCode)
 	}
@@ -123,7 +123,9 @@ func printTestStatus(status *types.TestStatus, branchName string, labels []strin
 func init() {
 	statusCmd.Flags().String("branch", "", "Branch name to check status for (required)")
 	statusCmd.Flags().String("labels", "", "Comma-separated list of labels to filter by")
-	
+
 	// Mark branch as required
-	statusCmd.MarkFlagRequired("branch")
+	if err := statusCmd.MarkFlagRequired("branch"); err != nil {
+		panic(err)
+	}
 }
