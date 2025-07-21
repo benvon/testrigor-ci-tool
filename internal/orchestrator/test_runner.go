@@ -208,7 +208,7 @@ func (tr *TestRunner) downloadReport(ctx context.Context, taskID string, debugMo
 
 		// Save report to file
 		reportPath := "test-report.xml"
-		if err := os.WriteFile(reportPath, reportData, 0644); err != nil {
+		if err := os.WriteFile(reportPath, reportData, 0600); err != nil {
 			return "", fmt.Errorf("failed to save report: %w", err)
 		}
 

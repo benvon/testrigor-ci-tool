@@ -98,8 +98,8 @@ func (c *TestRigorClient) CancelTestRun(ctx context.Context, runID string) error
 	}
 
 	resp, err := c.httpClient.Execute(ctx, Request{
-		Method:      "POST",
-		URL:         fmt.Sprintf("%s/apps/%s/cancel/%s", c.config.TestRigor.APIURL, c.config.TestRigor.AppID, runID),
+		Method:      "PUT",
+		URL:         fmt.Sprintf("%s/apps/%s/runs/%s/cancel", c.config.TestRigor.APIURL, c.config.TestRigor.AppID, runID),
 		Headers:     headers,
 		ContentType: "application/json",
 	})
