@@ -73,8 +73,8 @@ jobs:
 
       - name: Security Check
         run: |
-          go install github.com/securecodewarrior/go-crypto-auditor@latest
-          go list -json -m all | go-crypto-auditor
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec ./...
 
   test:
     name: Tests
