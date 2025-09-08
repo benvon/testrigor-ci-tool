@@ -25,7 +25,7 @@ jobs:
           echo "version=$(grep '^go ' go.mod | cut -d' ' -f2)" >> $GITHUB_OUTPUT
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ steps.go-version.outputs.version }}
           cache: true
@@ -91,7 +91,7 @@ jobs:
           echo "version=$(grep '^go ' go.mod | cut -d' ' -f2)" >> $GITHUB_OUTPUT
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ steps.go-version.outputs.version }}
           cache: true
@@ -140,7 +140,7 @@ jobs:
           echo "version=$(grep '^go ' go.mod | cut -d' ' -f2)" >> $GITHUB_OUTPUT
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ steps.go-version.outputs.version }}
           cache: true
