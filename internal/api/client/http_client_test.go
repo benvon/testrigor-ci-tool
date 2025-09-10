@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -261,24 +262,35 @@ func TestClientBuildHTTPRequest(t *testing.T) {
 }
 
 func TestDefaultHTTPClientDo(t *testing.T) {
+	// Create a local test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Respond with a simple JSON response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"message": "test response", "method": "` + r.Method + `"}`))
+	}))
+	defer server.Close()
+
 	client := NewDefaultHTTPClient()
 
-	// Create a simple GET request
-	req, err := http.NewRequest("GET", "https://httpbin.org/get", nil)
+	// Create a simple GET request to our local test server
+	req, err := http.NewRequest("GET", server.URL+"/test", nil)
 	assert.NoError(t, err)
 
-	// This is an integration test that requires internet connection
-	// In a real environment, you might want to skip this or use a test server
+	// Test the HTTP client with our local server
 	resp, err := client.Do(req)
-	if err != nil {
-		// Skip if no internet connection
-		t.Skipf("Skipping integration test due to network error: %v", err)
-		return
-	}
-
+	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+	defer resp.Body.Close()
+
 	assert.Equal(t, 200, resp.StatusCode)
-	_ = resp.Body.Close()
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+	// Verify the response body
+	body, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.Contains(t, string(body), "test response")
+	assert.Contains(t, string(body), "GET")
 }
 
 func TestRequestValidation(t *testing.T) {
