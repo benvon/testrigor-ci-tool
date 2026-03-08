@@ -8,9 +8,78 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
+
+// privateIPBlocks contains CIDR ranges for private and reserved IPs that must not
+// be reachable to prevent SSRF (Server-Side Request Forgery) attacks.
+var privateIPBlocks []*net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"0.0.0.0/8",       // Current network
+		"10.0.0.0/8",      // Private
+		"100.64.0.0/10",   // Shared address space (CGNAT)
+		"127.0.0.0/8",     // Loopback
+		"169.254.0.0/16",  // Link-local (cloud metadata, etc.)
+		"172.16.0.0/12",   // Private
+		"192.168.0.0/16",  // Private
+		"224.0.0.0/4",     // Multicast
+		"240.0.0.0/4",     // Reserved
+		"::1/128",         // IPv6 loopback
+		"fe80::/10",       // IPv6 link-local
+		"fc00::/7",        // IPv6 unique local
+	} {
+		_, block, _ := net.ParseCIDR(cidr)
+		privateIPBlocks = append(privateIPBlocks, block)
+	}
+}
+
+// isPrivateOrReservedIP returns true if the IP is in a private or reserved range.
+func isPrivateOrReservedIP(ip net.IP) bool {
+	for _, block := range privateIPBlocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// safeDialContext resolves the host and blocks connections to private/reserved IPs
+// to prevent SSRF when the request URL comes from config (e.g., TESTRIGOR_API_URL).
+func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ipAddr := range addrs {
+		if isPrivateOrReservedIP(ipAddr.IP) {
+			return nil, fmt.Errorf("connection to private/reserved IP %s is not allowed (SSRF protection)", ipAddr.IP)
+		}
+	}
+
+	dialer := &net.Dialer{Timeout: 30 * time.Second}
+	var lastErr error
+	for _, ipAddr := range addrs {
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ipAddr.IP.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no addresses to connect to for %s", addr)
+}
 
 // HTTPClient defines the interface for making HTTP requests.
 // This allows for easy mocking in tests.
@@ -24,10 +93,14 @@ type DefaultHTTPClient struct {
 }
 
 // NewDefaultHTTPClient creates a new default HTTP client with a 30-second timeout.
+// The client uses a transport that blocks connections to private/reserved IPs to prevent SSRF.
 func NewDefaultHTTPClient() *DefaultHTTPClient {
 	return &DefaultHTTPClient{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				DialContext: safeDialContext,
+			},
 		},
 	}
 }
