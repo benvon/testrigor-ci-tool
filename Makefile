@@ -149,6 +149,7 @@ dev-setup: ## Set up development environment
 	$(GO) install golang.org/x/tools/cmd/goimports@latest
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
+	$(GO) install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "Development environment setup complete!"
 
 .PHONY: watch
@@ -162,6 +163,7 @@ validate: ## Run lint, format, security checks, and ensure test coverage > 70% f
 	@echo "Validating code for PR workflow..."
 	golangci-lint run
 	gofmt -l -s . | tee /dev/stderr | (! grep .)
+	@command -v gosec >/dev/null 2>&1 || $(GO) install github.com/securego/gosec/v2/cmd/gosec@latest
 	gosec ./...
 	@echo "Running tests and checking coverage..."
 	@mkdir -p $(COVERAGE_DIR)

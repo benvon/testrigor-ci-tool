@@ -19,18 +19,18 @@ var privateIPBlocks []*net.IPNet
 
 func init() {
 	for _, cidr := range []string{
-		"0.0.0.0/8",       // Current network
-		"10.0.0.0/8",      // Private
-		"100.64.0.0/10",   // Shared address space (CGNAT)
-		"127.0.0.0/8",     // Loopback
-		"169.254.0.0/16",  // Link-local (cloud metadata, etc.)
-		"172.16.0.0/12",   // Private
-		"192.168.0.0/16",  // Private
-		"224.0.0.0/4",     // Multicast
-		"240.0.0.0/4",     // Reserved
-		"::1/128",         // IPv6 loopback
-		"fe80::/10",       // IPv6 link-local
-		"fc00::/7",        // IPv6 unique local
+		"0.0.0.0/8",      // Current network
+		"10.0.0.0/8",     // Private
+		"100.64.0.0/10",  // Shared address space (CGNAT)
+		"127.0.0.0/8",    // Loopback
+		"169.254.0.0/16", // Link-local (cloud metadata, etc.)
+		"172.16.0.0/12",  // Private
+		"192.168.0.0/16", // Private
+		"224.0.0.0/4",    // Multicast
+		"240.0.0.0/4",    // Reserved
+		"::1/128",        // IPv6 loopback
+		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 unique local
 	} {
 		_, block, _ := net.ParseCIDR(cidr)
 		privateIPBlocks = append(privateIPBlocks, block)
