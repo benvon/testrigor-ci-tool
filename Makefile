@@ -37,23 +37,59 @@ clean: ## Clean build artifacts
 	rm -rf $(BUILD_DIR)/
 
 .PHONY: fmt
-fmt: ## Format Go code
+fmt: ## Format Go code (fix formatting)
 	@echo "Formatting Go code..."
 	$(GO) fmt ./...
-	goimports -w .
+	$(GO) run golang.org/x/tools/cmd/goimports@latest -w .
+
+.PHONY: fmt-check
+fmt-check: ## Verify Go formatting (CI check - no modifications)
+	@echo "Checking Go formatting..."
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then \
+	  echo "The following files are not properly formatted (run 'make fmt' to fix):"; \
+	  echo "$$unformatted"; \
+	  exit 1; \
+	fi
+	@unformatted=$$($(GO) run golang.org/x/tools/cmd/goimports@latest -l .); \
+	if [ -n "$$unformatted" ]; then \
+	  echo "The following files have incorrect imports (run 'make fmt' to fix):"; \
+	  echo "$$unformatted"; \
+	  exit 1; \
+	fi
 
 .PHONY: lint
-lint: ## Run linting checks
+lint: ## Run linting checks (aligned with CI)
 	@echo "Running linting checks..."
 	$(GO) vet ./...
-	golangci-lint run
+	@echo "Checking go mod tidy..."
+	@$(GO) mod tidy; \
+	tidy_changes=$$(git diff --name-only go.mod go.sum 2>/dev/null); \
+	if [ -n "$$tidy_changes" ]; then \
+	  echo "go mod tidy resulted in changes. Please commit the changes to go.mod and go.sum:"; \
+	  git diff go.mod go.sum; \
+	  exit 1; \
+	fi
+	@echo "Running golangci-lint..."
+	@command -v golangci-lint >/dev/null 2>&1 || $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@PATH="$$(go env GOPATH)/bin:$$PATH" golangci-lint run --timeout=5m --verbose
+	@echo "Running security check (gosec)..."
+	@command -v gosec >/dev/null 2>&1 || $(GO) install github.com/securego/gosec/v2/cmd/gosec@latest
+	@PATH="$$(go env GOPATH)/bin:$$PATH" gosec ./...
 
 .PHONY: test
-test: ## Run tests with coverage
+test: ## Run tests with coverage (CI: requires >= 70% coverage)
 	@echo "Running tests with coverage..."
 	@mkdir -p $(COVERAGE_DIR)
 	$(GO) test -v -race -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic ./...
 	$(GO) tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
+	@echo "Checking test coverage (minimum 70%)..."
+	@coverage=$$($(GO) tool cover -func=$(COVERAGE_DIR)/coverage.out | grep total | awk '{print substr($$3, 1, length($$3)-1)}'); \
+	echo "Test coverage: $${coverage}%"; \
+	if [ -n "$$coverage" ] && [ "$$(echo "$$coverage < 70" | bc 2>/dev/null)" = "1" ]; then \
+	  echo "Test coverage is below 70% (minimum required)"; \
+	  exit 1; \
+	fi
 
 .PHONY: test-short
 test-short: ## Run tests without coverage (faster)
@@ -99,7 +135,7 @@ vendor: ## Create vendor directory
 	$(GO) mod vendor
 
 .PHONY: check
-check: fmt lint test ## Run all quality checks
+check: fmt-check lint test ## Run all quality checks (aligned with CI - verify only)
 	@echo "All quality checks passed!"
 
 .PHONY: ci

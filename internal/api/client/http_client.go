@@ -107,8 +107,9 @@ func NewDefaultHTTPClient() *DefaultHTTPClient {
 }
 
 // Do implements the HTTPClient interface by delegating to the underlying http.Client.
+// SSRF protection is enforced at the transport layer via safeDialContext.
 func (c *DefaultHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	return c.client.Do(req)
+	return c.client.Do(req) // #nosec G704 -- SSRF blocked by safeDialContext in transport
 }
 
 // Request represents an HTTP request with all necessary parameters.
