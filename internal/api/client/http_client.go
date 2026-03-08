@@ -94,13 +94,14 @@ type DefaultHTTPClient struct {
 
 // NewDefaultHTTPClient creates a new default HTTP client with a 30-second timeout.
 // The client uses a transport that blocks connections to private/reserved IPs to prevent SSRF.
+// The transport is based on http.DefaultTransport to preserve proxy support, HTTP/2, and other defaults.
 func NewDefaultHTTPClient() *DefaultHTTPClient {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = safeDialContext
 	return &DefaultHTTPClient{
 		client: &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				DialContext: safeDialContext,
-			},
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}
 }
