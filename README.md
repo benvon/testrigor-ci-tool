@@ -308,6 +308,18 @@ The tool provides detailed logging:
 
 ## Development
 
+### Development Setup
+
+The project uses [mise](https://mise.jdx.dev/) for managing core tooling versions (Go, etc.). Only major runtimes are managed via mise—ecosystem tools like golangci-lint, gosec, and goimports are installed automatically via `go install` when you run `make check` or `make lint`.
+
+```bash
+# Install Go via mise (uses .tool-versions)
+mise install
+
+# Optional: pre-install ecosystem tools to GOPATH/bin
+make dev-setup
+```
+
 ### Building from Source
 
 ```bash
@@ -322,9 +334,25 @@ go build -o testrigor-ci-tool .
 go test ./... -v
 ```
 
+### Local CI Checks
+
+Run the full quality check suite locally (aligned with the CI pipeline):
+
+```bash
+make check
+```
+
+This runs formatting checks, linting (go vet, golangci-lint, gosec), go mod tidy verification, and tests with coverage. Ecosystem tools (golangci-lint, gosec, goimports) are installed via `go install` when not found.
+
 ### Linting
 
 The project uses golangci-lint for code quality. **All PRs must pass linting checks before merging.**
+
+```bash
+make lint
+```
+
+Or run golangci-lint directly (it will be installed via `go install` if not in PATH):
 
 ```bash
 golangci-lint run
