@@ -8,13 +8,14 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   quality:
-    uses: benvon/reusable-workflows/.github/workflows/go-quality.yml@130a938eed408977d8c3159327f13306f422b1eb
+    uses: benvon/reusable-workflows/.github/workflows/go-quality.yml@0a878c63c5a17372ecd27a1fd1fffd7c1b88e5d3
     with:
       quality_command: make ci
-      coverage_file: coverage/coverage.out
+      coverage_file: bin/coverage/coverage.out
       upload_codecov: true
       codecov_flags: unittests
       codecov_name: codecov-umbrella

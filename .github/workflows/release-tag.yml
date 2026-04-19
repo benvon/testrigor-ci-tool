@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   release-tag:
-    uses: benvon/reusable-workflows/.github/workflows/release-tag.yml@130a938eed408977d8c3159327f13306f422b1eb
+    uses: benvon/reusable-workflows/.github/workflows/release-tag.yml@0a878c63c5a17372ecd27a1fd1fffd7c1b88e5d3
     with:
       caller_event_name: ${{ github.event_name }}
       caller_sha: ${{ github.sha }}
