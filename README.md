@@ -374,7 +374,7 @@ The project includes two streamlined CI/CD workflows:
 - **Quality Checks**: Runs linting and tests
 - **Build**: Verifies the application builds successfully
 - **Release**: Automatically creates releases on tags using GoReleaser
-- **Triggers**: Tag pushes (v*)
+- **Triggers**: Semantic version tag pushes (`v*.*.*`)
 - **Purpose**: Creates production releases with quality guarantees
 
 All workflows ensure code quality is maintained throughout the development lifecycle.
