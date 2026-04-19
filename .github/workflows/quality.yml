@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   quality:
-    uses: benvon/reusable-workflows/.github/workflows/go-quality.yml@35c37bc4b4c72570ce464c783a71ec3d03c45d15
+    uses: benvon/reusable-workflows/.github/workflows/go-quality.yml@35c37bc452dc991c2c8cc88c4fc48e4d7f0e0aaf
     with:
       quality_command: make ci
       coverage_file: coverage/coverage.out
