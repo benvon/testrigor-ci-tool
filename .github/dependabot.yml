@@ -10,7 +10,7 @@ updates:
       - "dependencies"
       - "go"
     commit-message:
-      prefix: "go"
+      prefix: "chore"
       include: "scope"
 
   # Enable version updates for GitHub Actions
@@ -23,5 +23,5 @@ updates:
       - "dependencies"
       - "github-actions"
     commit-message:
-      prefix: "github-actions"
-      include: "scope" 
+      prefix: "chore"
+      include: "scope"
