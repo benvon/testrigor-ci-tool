@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -179,6 +180,37 @@ func TestClientExecute(t *testing.T) {
 			mockClient.AssertExpectations(t)
 		})
 	}
+}
+
+func TestClientExecuteRejectsOversizedResponse(t *testing.T) {
+	mockClient := new(MockHTTPClient)
+	client := New(mockClient)
+	oversizedBody := io.NopCloser(io.LimitReader(zeroReader{}, maxResponseBodyBytes+1))
+
+	mockClient.On("Do", mock.AnythingOfType("*http.Request")).Return(&http.Response{
+		StatusCode: 200,
+		Body:       oversizedBody,
+		Header:     make(http.Header),
+	}, nil)
+
+	resp, err := client.Execute(context.Background(), Request{
+		Method: "GET",
+		URL:    apiURL,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "response body exceeds maximum size")
+	mockClient.AssertExpectations(t)
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }
 
 func TestClientBuildHTTPRequest(t *testing.T) {

@@ -396,16 +396,38 @@ func TestTestRunnerDownloadReportRetryLogic(t *testing.T) {
 
 	// First call fails with "not ready", second succeeds
 	reportData := []byte(`<?xml version="1.0"?><testsuite></testsuite>`)
-	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, errors.New("report still being generated")).Once()
+	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, client.ErrReportStillGenerating).Once()
 	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(reportData, nil).Once()
 
 	// Execute
 	ctx := context.Background()
-	reportPath, err := runner.downloadReport(ctx, "task-123", true) // Debug mode
+	reportPath, err := runner.downloadReportWithRetry(ctx, "task-123", true, 2, time.Millisecond)
 
 	// Verify
 	assert.NoError(t, err)
 	assert.NotEmpty(t, reportPath)
+	mockClient.AssertExpectations(t)
+}
+
+func TestTestRunnerDownloadReportStopsRetryOnContextCancel(t *testing.T) {
+	cfg := &config.Config{}
+	logger := &MockLogger{}
+	runner := &TestRunner{
+		config: cfg,
+		logger: logger,
+	}
+
+	mockClient := &MockTestRigorClient{}
+	runner.apiClient = mockClient
+	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, client.ErrReportStillGenerating).Once()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	reportPath, err := runner.downloadReportWithRetry(ctx, "task-123", true, 2, time.Minute)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, reportPath)
 	mockClient.AssertExpectations(t)
 }
 
