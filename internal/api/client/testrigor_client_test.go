@@ -95,6 +95,18 @@ func TestGetJUnitReportSuccess(t *testing.T) {
 	assert.Equal(t, []byte(`<xml></xml>`), data)
 }
 
+func TestGetJUnitReportStillGenerating(t *testing.T) {
+	cfg := &config.Config{TestRigor: config.TestRigorConfig{AuthToken: "token", AppID: "app", APIURL: "http://api"}}
+	mockClient := &mockHTTPClient{}
+	mockClient.On("Do", mock.Anything).Return(newHTTPResponse(404, `{"message":"Report still being generated"}`), nil)
+	c := NewTestRigorClient(cfg, mockClient)
+
+	data, err := c.GetJUnitReport(context.Background(), "tid")
+
+	assert.Nil(t, data)
+	assert.ErrorIs(t, err, ErrReportStillGenerating)
+}
+
 func TestBuildStartTestRunBodyCustomNameOnly(t *testing.T) {
 	c := &TestRigorClient{}
 

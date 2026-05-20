@@ -4,6 +4,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -14,6 +15,10 @@ import (
 	"github.com/benvon/testrigor-ci-tool/internal/api/types"
 	"github.com/benvon/testrigor-ci-tool/internal/config"
 )
+
+// ErrReportStillGenerating indicates that TestRigor accepted the report request
+// but has not finished generating the report yet.
+var ErrReportStillGenerating = errors.New("report still being generated")
 
 // TestRigorClient is a primitive client for TestRigor API operations.
 type TestRigorClient struct {
@@ -137,7 +142,7 @@ func (c *TestRigorClient) GetJUnitReport(ctx context.Context, taskID string) ([]
 		var errorResp map[string]interface{}
 		if json.Unmarshal(resp.Body, &errorResp) == nil {
 			if msg, ok := errorResp["message"].(string); ok && strings.Contains(msg, "Report still being generated") {
-				return nil, fmt.Errorf("report still being generated")
+				return nil, ErrReportStillGenerating
 			}
 		}
 		return nil, fmt.Errorf("report not found")

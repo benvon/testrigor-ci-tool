@@ -4,6 +4,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,11 @@ import (
 	"github.com/benvon/testrigor-ci-tool/internal/api/client"
 	"github.com/benvon/testrigor-ci-tool/internal/api/types"
 	"github.com/benvon/testrigor-ci-tool/internal/config"
+)
+
+const (
+	defaultReportMaxRetries    = 10
+	defaultReportRetryInterval = 30 * time.Second
 )
 
 // TestRigorClient interface defines the operations needed for test execution.
@@ -192,13 +198,14 @@ func (tr *TestRunner) monitorTestExecution(ctx context.Context, branchName strin
 
 // downloadReport downloads the JUnit report with retry logic.
 func (tr *TestRunner) downloadReport(ctx context.Context, taskID string, debugMode bool) (string, error) {
-	maxRetries := 10
-	retryInterval := 30 * time.Second
+	return tr.downloadReportWithRetry(ctx, taskID, debugMode, defaultReportMaxRetries, defaultReportRetryInterval)
+}
 
+func (tr *TestRunner) downloadReportWithRetry(ctx context.Context, taskID string, debugMode bool, maxRetries int, retryInterval time.Duration) (string, error) {
 	for i := 0; i < maxRetries; i++ {
 		reportData, err := tr.apiClient.GetJUnitReport(ctx, taskID)
 		if err != nil {
-			if err.Error() == "report still being generated" {
+			if errors.Is(err, client.ErrReportStillGenerating) {
 				if debugMode {
 					tr.logger.Printf("Report not ready, retrying in %v (attempt %d/%d)\n", retryInterval, i+1, maxRetries)
 				}

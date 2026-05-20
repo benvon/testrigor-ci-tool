@@ -383,10 +383,6 @@ func TestTestRunnerDownloadReportSuccess(t *testing.T) {
 }
 
 func TestTestRunnerDownloadReportRetryLogic(t *testing.T) {
-	if testing.Short() {
-		t.Skip("retry timing test sleeps for the production report retry interval")
-	}
-
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -400,12 +396,12 @@ func TestTestRunnerDownloadReportRetryLogic(t *testing.T) {
 
 	// First call fails with "not ready", second succeeds
 	reportData := []byte(`<?xml version="1.0"?><testsuite></testsuite>`)
-	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, errors.New("report still being generated")).Once()
+	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, client.ErrReportStillGenerating).Once()
 	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(reportData, nil).Once()
 
 	// Execute
 	ctx := context.Background()
-	reportPath, err := runner.downloadReport(ctx, "task-123", true) // Debug mode
+	reportPath, err := runner.downloadReportWithRetry(ctx, "task-123", true, 2, time.Millisecond)
 
 	// Verify
 	assert.NoError(t, err)
@@ -423,12 +419,12 @@ func TestTestRunnerDownloadReportStopsRetryOnContextCancel(t *testing.T) {
 
 	mockClient := &MockTestRigorClient{}
 	runner.apiClient = mockClient
-	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, errors.New("report still being generated")).Once()
+	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, client.ErrReportStillGenerating).Once()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	reportPath, err := runner.downloadReport(ctx, "task-123", true)
+	reportPath, err := runner.downloadReportWithRetry(ctx, "task-123", true, 2, time.Minute)
 
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, reportPath)
