@@ -202,7 +202,9 @@ func (tr *TestRunner) downloadReport(ctx context.Context, taskID string, debugMo
 				if debugMode {
 					tr.logger.Printf("Report not ready, retrying in %v (attempt %d/%d)\n", retryInterval, i+1, maxRetries)
 				}
-				time.Sleep(retryInterval)
+				if err := sleepContext(ctx, retryInterval); err != nil {
+					return "", err
+				}
 				continue
 			}
 			return "", err
@@ -229,6 +231,18 @@ func (tr *TestRunner) downloadReport(ctx context.Context, taskID string, debugMo
 	}
 
 	return "", fmt.Errorf("report not ready after %d attempts", maxRetries)
+}
+
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // isTestRunSuccessful determines if the test run was successful.

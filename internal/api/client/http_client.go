@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const maxResponseBodyBytes = 50 << 20 // 50 MiB
+
 // privateIPBlocks contains CIDR ranges for private and reserved IPs that must not
 // be reachable to prevent SSRF (Server-Side Request Forgery) attacks.
 var privateIPBlocks []*net.IPNet
@@ -157,9 +159,12 @@ func (c *Client) Execute(ctx context.Context, req Request) (*Response, error) {
 		_ = httpResp.Body.Close()
 	}()
 
-	body, err := io.ReadAll(httpResp.Body)
+	body, err := io.ReadAll(io.LimitReader(httpResp.Body, maxResponseBodyBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if len(body) > maxResponseBodyBytes {
+		return nil, fmt.Errorf("response body exceeds maximum size of %d bytes", maxResponseBodyBytes)
 	}
 
 	return &Response{

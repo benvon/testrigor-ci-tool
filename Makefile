@@ -10,6 +10,7 @@ COVERAGE_DIR := $(BUILD_DIR)/coverage
 # Go settings
 GO := go
 GOFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
+GO_TOOL := $(GO) tool -modfile=tools/go.mod
 
 .PHONY: help
 help: ## Show this help message
@@ -40,7 +41,7 @@ clean: ## Clean build artifacts
 fmt: ## Format Go code (fix formatting)
 	@echo "Formatting Go code..."
 	$(GO) fmt ./...
-	$(GO) run golang.org/x/tools/cmd/goimports@latest -w .
+	$(GO_TOOL) goimports -w .
 
 .PHONY: fmt-check
 fmt-check: ## Verify Go formatting (CI check - no modifications)
@@ -51,7 +52,7 @@ fmt-check: ## Verify Go formatting (CI check - no modifications)
 	  echo "$$unformatted"; \
 	  exit 1; \
 	fi
-	@unformatted=$$($(GO) run golang.org/x/tools/cmd/goimports@latest -l .); \
+	@unformatted=$$($(GO_TOOL) goimports -l .); \
 	if [ -n "$$unformatted" ]; then \
 	  echo "The following files have incorrect imports (run 'make fmt' to fix):"; \
 	  echo "$$unformatted"; \
@@ -63,19 +64,18 @@ lint: ## Run linting checks (aligned with CI)
 	@echo "Running linting checks..."
 	$(GO) vet ./...
 	@echo "Checking go mod tidy..."
-	@$(GO) mod tidy; \
-	tidy_changes=$$(git diff --name-only go.mod go.sum 2>/dev/null); \
-	if [ -n "$$tidy_changes" ]; then \
-	  echo "go mod tidy resulted in changes. Please commit the changes to go.mod and go.sum:"; \
+	@before=$$(git diff -- go.mod go.sum 2>/dev/null); \
+	$(GO) mod tidy; \
+	after=$$(git diff -- go.mod go.sum 2>/dev/null); \
+	if [ "$$before" != "$$after" ]; then \
+	  echo "go mod tidy resulted in additional changes. Please commit the changes to go.mod and go.sum:"; \
 	  git diff go.mod go.sum; \
 	  exit 1; \
 	fi
 	@echo "Running golangci-lint..."
-	@command -v golangci-lint >/dev/null 2>&1 || $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	@PATH="$$(go env GOPATH)/bin:$$PATH" golangci-lint run --timeout=5m --verbose
+	$(GO_TOOL) golangci-lint run --timeout=5m --verbose
 	@echo "Running security check (gosec)..."
-	@command -v gosec >/dev/null 2>&1 || $(GO) install github.com/securego/gosec/v2/cmd/gosec@latest
-	@PATH="$$(go env GOPATH)/bin:$$PATH" gosec ./...
+	$(GO_TOOL) gosec ./...
 
 .PHONY: test
 test: ## Run tests with coverage (CI: requires >= 70% coverage)
@@ -145,7 +145,7 @@ ci: deps check build ## Run CI pipeline locally
 .PHONY: security
 security: ## Run security checks
 	@echo "Running security checks..."
-	govulncheck ./...
+	$(GO_TOOL) govulncheck ./...
 
 .PHONY: doc
 doc: ## Generate and serve documentation
@@ -182,11 +182,8 @@ all: check build ## Build everything and run all checks
 .PHONY: dev-setup
 dev-setup: ## Set up development environment
 	@echo "Setting up development environment..."
-	$(GO) install golang.org/x/tools/cmd/goimports@latest
-	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
-	$(GO) install github.com/securego/gosec/v2/cmd/gosec@latest
-	@echo "Development environment setup complete!"
+	$(GO) mod download -modfile=tools/go.mod
+	@echo "Pinned development tools are ready."
 
 .PHONY: watch
 watch: ## Watch for changes and run tests
@@ -197,10 +194,9 @@ watch: ## Watch for changes and run tests
 .PHONY: validate
 validate: ## Run lint, format, security checks, and ensure test coverage > 70% for PR validation
 	@echo "Validating code for PR workflow..."
-	golangci-lint run
+	$(GO_TOOL) golangci-lint run
 	gofmt -l -s . | tee /dev/stderr | (! grep .)
-	@command -v gosec >/dev/null 2>&1 || $(GO) install github.com/securego/gosec/v2/cmd/gosec@latest
-	gosec ./...
+	$(GO_TOOL) gosec ./...
 	@echo "Running tests and checking coverage..."
 	@mkdir -p $(COVERAGE_DIR)
 	go test -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic ./...
@@ -216,4 +212,4 @@ validate: ## Run lint, format, security checks, and ensure test coverage > 70% f
 	else \
 	  echo "Test coverage is sufficient: $$totalcov%"; \
 	fi
-	@echo "Validation complete!" 
+	@echo "Validation complete!"

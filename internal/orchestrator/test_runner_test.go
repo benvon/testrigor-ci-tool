@@ -383,6 +383,10 @@ func TestTestRunnerDownloadReportSuccess(t *testing.T) {
 }
 
 func TestTestRunnerDownloadReportRetryLogic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("retry timing test sleeps for the production report retry interval")
+	}
+
 	// Setup
 	cfg := &config.Config{}
 	logger := &MockLogger{}
@@ -406,6 +410,28 @@ func TestTestRunnerDownloadReportRetryLogic(t *testing.T) {
 	// Verify
 	assert.NoError(t, err)
 	assert.NotEmpty(t, reportPath)
+	mockClient.AssertExpectations(t)
+}
+
+func TestTestRunnerDownloadReportStopsRetryOnContextCancel(t *testing.T) {
+	cfg := &config.Config{}
+	logger := &MockLogger{}
+	runner := &TestRunner{
+		config: cfg,
+		logger: logger,
+	}
+
+	mockClient := &MockTestRigorClient{}
+	runner.apiClient = mockClient
+	mockClient.On("GetJUnitReport", mock.Anything, "task-123").Return(nil, errors.New("report still being generated")).Once()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	reportPath, err := runner.downloadReport(ctx, "task-123", true)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, reportPath)
 	mockClient.AssertExpectations(t)
 }
 
