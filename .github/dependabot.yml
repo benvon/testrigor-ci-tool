@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Enable version updates for Go
+  # Enable version updates for Go (app module)
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
@@ -12,6 +12,37 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      go-modules:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # Enable version updates for Go (tools module)
+  - package-ecosystem: "gomod"
+    directory: "/tools"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      go-modules:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
