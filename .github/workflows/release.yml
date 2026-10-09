@@ -50,6 +50,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.validate_tag.outputs.release_tag }}
         run: |
+          set -euo pipefail
           if ! stable_tags=$(git tag --list | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | sort -V); then
             echo "Could not enumerate canonical stable release tags; refusing to publish." >&2
             exit 1
