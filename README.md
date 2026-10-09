@@ -243,7 +243,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.27'
           
       - name: Install TestRigor CI Tool
         run: go install github.com/benvon/testrigor-ci-tool@latest
@@ -266,7 +266,7 @@ jobs:
 
 ```yaml
 testrigor_tests:
-  image: golang:1.21
+  image: golang:1.27
   script:
     - go install github.com/benvon/testrigor-ci-tool@latest
     - testrigor run-and-wait \
@@ -310,14 +310,14 @@ The tool provides detailed logging:
 
 ### Development Setup
 
-The project uses [mise](https://mise.jdx.dev/) for managing core tooling versions (Go, etc.). Only major runtimes are managed via mise—ecosystem tools like golangci-lint, gosec, and goimports are installed automatically via `go install` when you run `make check` or `make lint`.
+The project uses [mise](https://mise.jdx.dev/) to pin Go. Development tools such as golangci-lint, gosec, govulncheck, and goimports are versioned in `tools/go.mod` and run through Go's `go tool` command.
 
 ```bash
 # Install Go via mise (uses .tool-versions)
 mise install
 
-# Optional: pre-install ecosystem tools to GOPATH/bin
-make dev-setup
+# Download the pinned development tools
+mise exec -- make dev-setup
 ```
 
 ### Building from Source
@@ -336,13 +336,13 @@ go test ./... -v
 
 ### Local CI Checks
 
-Run the full quality check suite locally (aligned with the CI pipeline):
+Run the full local CI and security checks (aligned with GitHub Actions):
 
 ```bash
-make check
+mise exec -- make ci && mise exec -- make security
 ```
 
-This runs formatting checks, linting (go vet, golangci-lint, gosec), go mod tidy verification, and tests with coverage. Ecosystem tools (golangci-lint, gosec, goimports) are installed via `go install` when not found.
+This runs dependency verification, formatting, linting (go vet, golangci-lint, gosec), module tidy verification, tests with coverage, a build, and govulncheck. The tools are pinned in `tools/go.mod` and invoked with `go tool`. For the check-only subset, run `mise exec -- make check`.
 
 ### Linting
 
@@ -352,10 +352,10 @@ The project uses golangci-lint for code quality. **All PRs must pass linting che
 make lint
 ```
 
-Or run golangci-lint directly (it will be installed via `go install` if not in PATH):
+Or run the pinned golangci-lint directly:
 
 ```bash
-golangci-lint run
+go tool -modfile=tools/go.mod golangci-lint run
 ```
 
 The CI/CD pipeline automatically runs linting on all pull requests and will block merging if any linting issues are found.
