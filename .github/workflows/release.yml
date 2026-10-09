@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -45,6 +45,28 @@ jobs:
 
       - name: Fetch tags
         run: git fetch --force --tags origin
+
+      - name: Reject older release tags
+        env:
+          RELEASE_TAG: ${{ steps.validate_tag.outputs.release_tag }}
+        run: |
+          if ! stable_tags=$(git tag --list | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | sort -V); then
+            echo "Could not enumerate canonical stable release tags; refusing to publish." >&2
+            exit 1
+          fi
+          if [[ -z "$stable_tags" ]]; then
+            echo "No canonical stable release tags were found; refusing to publish." >&2
+            exit 1
+          fi
+          if ! grep -Fxq -- "$RELEASE_TAG" <<< "$stable_tags"; then
+            echo "Selected release tag is missing from the fetched canonical stable tags; refusing to publish." >&2
+            exit 1
+          fi
+          highest_tag="$(tail -n 1 <<< "$stable_tags")"
+          if [[ "$RELEASE_TAG" != "$highest_tag" ]]; then
+            echo "Refusing release $RELEASE_TAG: $highest_tag is already the highest stable release tag." >&2
+            exit 1
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v6
