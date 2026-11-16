@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   quality:
-    uses: benvon/reusable-workflows/.github/workflows/go-quality.yml@f70796de0a6527dbed267a64835c3cc81b8144e0
+    uses: benvon/reusable-workflows/.github/workflows/go-quality.yml@7a10cbed2f19546444ca465c04976727abf108f7
     with:
       quality_command: make ci && make security
       # Go quality tools are pinned in tools/go.mod and invoked with `go tool`.
